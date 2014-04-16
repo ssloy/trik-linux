@@ -51,7 +51,7 @@ static void ohci_da8xx_clock(int on)
 			cfgchip2 |= CFGCHIP2_PHY_PLLON;
 			__raw_writel(cfgchip2, CFGCHIP2);
 
-			pr_info("Waiting for USB PHY clock good...\n");
+			pr_info("Waiting for USB 2.0 PHY clock good for USB 1.1...\n");
 			while (!(__raw_readl(CFGCHIP2) & CFGCHIP2_PHYCLKGD))
 				cpu_relax();
 		}

@@ -263,7 +263,7 @@ static inline void phy_on(void)
 	cfgchip2 |= CFGCHIP2_PHY_PLLON;
 	writel(cfgchip2, CFGCHIP2);
 
-	pr_info("Waiting for USB PHY clock good...\n");
+	pr_info("Waiting for USB 2.0 PHY clock good...\n");
 	while (!(readl(CFGCHIP2) & CFGCHIP2_PHYCLKGD))
 		cpu_relax();
 }
