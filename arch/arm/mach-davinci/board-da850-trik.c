@@ -1090,7 +1090,7 @@ static struct da8xx_ohci_root_hub da850_trik_usb11_pdata = {
 static __init int da850_trik_usb11_init(void)
 {
 	int ret = EINVAL;
-	// NOTE: USB 2.0 must be initialized first
+	// NOTE: USB 2.0 must be initialized first due to clock dependency
 
 	ret = da8xx_register_usb11(&da850_trik_usb11_pdata);
 	if (ret) {
@@ -1111,9 +1111,10 @@ static __init int da850_trik_usb11_init(void)
 #ifndef CONFIG_USB_MUSB_OTG
 #error Only USB_MUSB_OTG supported!
 #endif
-static const short da850_trik_usb20_aux_pins[] __initconst = {
-	DA850_GPIO5_15,	/* USB FAULT */
-	DA850_GPIO6_1,	/* MODE B    */
+static const short da850_trik_usb20_pins[] __initconst = {
+	DA830_USB0_DRVVBUS,	/* VBUS sense */
+	DA850_GPIO5_15,		/* aux USB FAULT */
+	DA850_GPIO6_1,		/* aux MODE B    */
 	-1
 };
 
@@ -1135,13 +1136,13 @@ static __init int da850_trik_usb20_init(void)
 	cfgchip2 |=  CFGCHIP2_USB2PHYCLKMUX;
 
 	cfgchip2 &= ~CFGCHIP2_OTGMODE;
-	cfgchip2 |=  CFGCHIP2_SESENDEN | CFGCHIP2_VBDTCTEN;
+	cfgchip2 |=  CFGCHIP2_SESENDEN | CFGCHIP2_VBDTCTEN | CFGCHIP2_NO_OVERRIDE;
 
 	__raw_writel(cfgchip2, DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP2_REG));
 
-	ret = davinci_cfg_reg_list(da850_trik_usb20_aux_pins);
+	ret = davinci_cfg_reg_list(da850_trik_usb20_pins);
 	if (ret) {
-		pr_err("%s: USB 2.0 auxiliary pinmux setup failed: %d\n", __func__, ret);
+		pr_err("%s: USB 2.0 pinmux setup failed: %d\n", __func__, ret);
 		goto exit;
 	}
 
