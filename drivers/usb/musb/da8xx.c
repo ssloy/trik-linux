@@ -272,21 +272,20 @@ static inline void phy_off(void)
 {
 	u32 cfgchip2 = readl(CFGCHIP2);
 
+	/* Should be safe to disable OTG without affecting USB 1.1 */
+	cfgchip2 |= CFGCHIP2_OTGPWRDN;
 	/*
 	 * Ensure that USB 1.1 reference clock is not being sourced from
 	 * USB 2.0 PHY.  Otherwise do not power down the PHY.
 	 */
 	if (!(cfgchip2 & CFGCHIP2_USB1PHYCLKMUX) &&
 	     (cfgchip2 & CFGCHIP2_USB1SUSPENDM)) {
-		pr_warning("USB 1.1 clocked from USB 2.0 PHY -- "
-			   "can't power it down\n");
-		return;
+		pr_warning("USB 1.1 clocked from USB 2.0 PHY, can't power it down\n");
+	} else {
+		/* Power down the on-chip PHY */
+		cfgchip2 |= CFGCHIP2_PHYPWRDN;
 	}
 
-	/*
-	 * Power down the on-chip PHY.
-	 */
-	cfgchip2 |= CFGCHIP2_PHYPWRDN | CFGCHIP2_OTGPWRDN;
 	writel(cfgchip2, CFGCHIP2);
 }
 
