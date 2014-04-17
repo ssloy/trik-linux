@@ -1092,11 +1092,8 @@ static __init int da850_trik_usb11_init(void)
 	int ret = EINVAL;
 	u32 cfgchip2;
 
+        /* NOTE: USB 1.1 relies on USB 2.0 PHY */
 	cfgchip2 = __raw_readl(DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP2_REG));
-	if (!(cfgchip2 & CFGCHIP2_REFFREQ)) {
-		pr_warning("%s: USB 1.1 requires USB 2.0 PHY setup\n", __func__, ret);
-		goto exit;
-	}
 	cfgchip2 &= ~CFGCHIP2_USB1PHYCLKMUX;
 	__raw_writel(cfgchip2, DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP2_REG));
 
