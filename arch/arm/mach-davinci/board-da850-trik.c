@@ -1090,7 +1090,15 @@ static struct da8xx_ohci_root_hub da850_trik_usb11_pdata = {
 static __init int da850_trik_usb11_init(void)
 {
 	int ret = EINVAL;
-	// NOTE: USB 2.0 must be initialized first due to clock dependency
+	u32 cfgchip2;
+
+	cfgchip2 = __raw_readl(DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP2_REG));
+	if (!(cfgchip2 & CFGCHIP2_REFFREQ)) {
+		pr_warning("%s: USB 1.1 requires USB 2.0 PHY setup\n", __func__, ret);
+		goto exit;
+	}
+	cfgchip2 &= ~CFGCHIP2_USB1PHYCLKMUX;
+	__raw_writel(cfgchip2, DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP2_REG));
 
 	ret = da8xx_register_usb11(&da850_trik_usb11_pdata);
 	if (ret) {
@@ -1131,8 +1139,6 @@ static __init int da850_trik_usb20_init(void)
 	cfgchip2 = __raw_readl(DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP2_REG));
 	cfgchip2 &= ~CFGCHIP2_REFFREQ;
 	cfgchip2 |=  CFGCHIP2_REFFREQ_24MHZ;
-
-	cfgchip2 &= ~CFGCHIP2_USB1PHYCLKMUX;
 	cfgchip2 |=  CFGCHIP2_USB2PHYCLKMUX;
 
 	cfgchip2 &= ~CFGCHIP2_OTGMODE;
