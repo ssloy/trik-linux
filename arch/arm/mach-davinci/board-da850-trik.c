@@ -1120,7 +1120,6 @@ static __init int da850_trik_usb11_init(void)
 #error Only USB_MUSB_OTG supported!
 #endif
 static const short da850_trik_usb20_pins[] __initconst = {
-	DA830_USB0_DRVVBUS,	/* VBUS sense */
 	DA850_GPIO5_15,		/* aux USB FAULT */
 	DA850_GPIO6_1,		/* aux MODE B    */
 	-1
