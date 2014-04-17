@@ -1157,7 +1157,7 @@ static __init int da850_trik_usb20_init(void)
 		goto exit;
 	}
 
-	ret = da8xx_register_usb20(500, 20);
+	ret = da8xx_register_usb20(500, 10); /* STMPS2151MTR current 500mA, enable time 10ms */
 	if (ret) {
 		pr_err("%s: USB 2.0 registration failed: %d\n",__func__, ret);
 		goto exit_gpio_free;
