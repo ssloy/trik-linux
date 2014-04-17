@@ -1112,10 +1112,6 @@ static __init int da850_trik_usb11_init(void)
 
 
 
-#warning Preliminary USB OTG implementation
-#ifndef CONFIG_USB_MUSB_OTG
-#error Only USB_MUSB_OTG supported!
-#endif
 static const short da850_trik_usb20_pins[] __initconst = {
 	DA850_GPIO5_15,		/* aux USB FAULT */
 	DA850_GPIO6_1,		/* aux MODE B    */
@@ -1138,7 +1134,11 @@ static __init int da850_trik_usb20_init(void)
 	cfgchip2 |=  CFGCHIP2_USB2PHYCLKMUX;
 
 	cfgchip2 &= ~CFGCHIP2_OTGMODE;
+#ifdef	CONFIG_USB_MUSB_HOST
+	cfgchip2 |=  CFGCHIP2_FORCE_HOST;
+#else
 	cfgchip2 |=  CFGCHIP2_SESENDEN | CFGCHIP2_VBDTCTEN | CFGCHIP2_NO_OVERRIDE;
+#endif
 
 	__raw_writel(cfgchip2, DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP2_REG));
 
