@@ -51,7 +51,7 @@ static void ohci_da8xx_clock(int on)
 			cfgchip2 |= CFGCHIP2_PHY_PLLON;
 			__raw_writel(cfgchip2, CFGCHIP2);
 
-			pr_info("Waiting for USB PHY clock good...\n");
+			pr_info("Waiting for USB 2.0 PHY clock good for USB 1.1...\n");
 			while (!(__raw_readl(CFGCHIP2) & CFGCHIP2_PHYCLKGD))
 				cpu_relax();
 		}
@@ -127,12 +127,6 @@ static int ohci_da8xx_init(struct usb_hcd *hcd)
 	return result;
 }
 
-static void ohci_da8xx_stop(struct usb_hcd *hcd)
-{
-	ohci_stop(hcd);
-	ohci_da8xx_clock(0);
-}
-
 static int ohci_da8xx_start(struct usb_hcd *hcd)
 {
 	struct ohci_hcd	*ohci		= hcd_to_ohci(hcd);
@@ -140,9 +134,15 @@ static int ohci_da8xx_start(struct usb_hcd *hcd)
 
 	result = ohci_run(ohci);
 	if (result < 0)
-		ohci_da8xx_stop(hcd);
+		ohci_stop(hcd);
 
 	return result;
+}
+
+static void ohci_da8xx_shutdown(struct usb_hcd *hcd)
+{
+	ohci_shutdown(hcd);
+	ohci_da8xx_clock(0);
 }
 
 /*
@@ -251,8 +251,8 @@ static const struct hc_driver ohci_da8xx_hc_driver = {
 	 */
 	.reset			= ohci_da8xx_init,
 	.start			= ohci_da8xx_start,
-	.stop			= ohci_da8xx_stop,
-	.shutdown		= ohci_shutdown,
+	.stop			= ohci_stop,
+	.shutdown		= ohci_da8xx_shutdown,
 
 	/*
 	 * managing i/o requests and associated device resources
