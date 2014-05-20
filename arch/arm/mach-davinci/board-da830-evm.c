@@ -48,25 +48,29 @@ static const short da830_evm_usb11_pins[] = {
 
 static da8xx_ocic_handler_t da830_evm_usb_ocic_handler;
 
-static int da830_evm_usb_set_power(unsigned port, int on)
+static int da830_evm_usb_set_power(unsigned port,
+                                   struct da8xx_ohci_root_hub *hub, int on)
 {
 	gpio_set_value(ON_BD_USB_DRV, on);
 	return 0;
 }
 
-static int da830_evm_usb_get_power(unsigned port)
+static int da830_evm_usb_get_power(unsigned port,
+                                   struct da8xx_ohci_root_hub *hub)
 {
 	return gpio_get_value(ON_BD_USB_DRV);
 }
 
-static int da830_evm_usb_get_oci(unsigned port)
+static int da830_evm_usb_get_oci(unsigned port,
+                                 struct da8xx_ohci_root_hub *hub)
 {
 	return !gpio_get_value(ON_BD_USB_OVC);
 }
 
 static irqreturn_t da830_evm_usb_ocic_irq(int, void *);
 
-static int da830_evm_usb_ocic_notify(da8xx_ocic_handler_t handler)
+static int da830_evm_usb_ocic_notify(da8xx_ocic_handler_t handler,
+                                     struct da8xx_ohci_root_hub *hub)
 {
 	int irq 	= gpio_to_irq(ON_BD_USB_OVC);
 	int error	= 0;

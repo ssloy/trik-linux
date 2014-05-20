@@ -191,23 +191,25 @@ static const short da850_hawk_usb11_pins[] = {
 	-1
 };
 
-static int hawk_usb_set_power(unsigned port, int on)
+static int hawk_usb_set_power(unsigned port, struct da8xx_ohci_root_hub *hub,
+                              int on)
 {
 	gpio_set_value(DA850_USB1_VBUS_PIN, on);
 	return 0;
 }
 
-static int hawk_usb_get_power(unsigned port)
+static int hawk_usb_get_power(unsigned port, struct da8xx_ohci_root_hub *hub)
 {
 	return gpio_get_value(DA850_USB1_VBUS_PIN);
 }
 
-static int hawk_usb_get_oci(unsigned port)
+static int hawk_usb_get_oci(unsigned port, struct da8xx_ohci_root_hub *hub)
 {
 	return !gpio_get_value(DA850_USB1_OC_PIN);
 }
 
-static int hawk_usb_ocic_notify(da8xx_ocic_handler_t handler)
+static int hawk_usb_ocic_notify(da8xx_ocic_handler_t handler,
+                                struct da8xx_ohci_root_hub *hub)
 {
 	int irq         = gpio_to_irq(DA850_USB1_OC_PIN);
 	int error       = 0;
