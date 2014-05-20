@@ -1649,9 +1649,13 @@ static __init void da850_trik_init(void)
 	if (ret)
 		pr_warning("%s: bluetooth interface init failed: %d\n", __func__, ret);
 
-	ret = da850_trik_usb_init();
+	ret = da850_trik_usb11_init();
 	if (ret)
-		pr_warning("%s: usb interface init failed: %d\n", __func__, ret);
+		pr_warning("%s: USB 1.1 interface init failed: %d\n", __func__, ret);
+
+	ret = da850_trik_usb20_init();
+	if (ret)
+		pr_warning("%s: USB 2.0 interface init failed: %d\n", __func__, ret);
 
 	ret = da850_trik_msp430_init();
 	if (ret)
