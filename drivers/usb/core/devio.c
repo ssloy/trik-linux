@@ -2099,6 +2099,7 @@ static long usbdev_do_ioctl(struct file *file, unsigned int cmd,
 		snoop(&dev->dev, "%s: RELEASE_PORT\n", __func__);
 		ret = proc_release_port(ps, p);
 		break;
+
 	case USBDEVFS_GET_CAPABILITIES:
 		ret = proc_get_capabilities(ps, p);
 		break;
