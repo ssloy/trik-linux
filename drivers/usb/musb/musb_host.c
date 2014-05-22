@@ -2573,6 +2573,7 @@ bool musb_is_intr_sched_enabled(void)
 {
 	return use_intr_sched;
 }
+
 bool musb_is_intr_sched(struct musb *musb)
 {
 	BUG_ON(musb == NULL);
