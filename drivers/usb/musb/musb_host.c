@@ -530,7 +530,7 @@ static void musb_advance_schedule(struct musb *musb, struct urb *urb,
 	 */
 	if (status == 0 && qh != NULL && qh->is_ready) {
 		dev_dbg(musb->controller, "... next ep%d %cX urb %p\n",
-				hw_ep->epnum, is_in ? 'R' : 'T', next_urb(qh));
+		        hw_ep->epnum, is_in ? 'R' : 'T', next_urb(qh));
 		if (!musb_is_intr_sched(musb) || qh->type != USB_ENDPOINT_XFER_INT)
 			musb_start_urb(musb, is_in, qh);
 	}
@@ -814,12 +814,12 @@ static void musb_ep_program(struct musb *musb, u8 epnum,
 	u16			csr;
 
 	dev_dbg(musb->controller, "%s hw%d urb %p spd%d dev%d ep%d%s "
-				"h_addr%02x h_port%02x bytes %d\n",
-			is_out ? "-->" : "<--",
-			epnum, urb, urb->dev->speed,
-			qh->addr_reg, qh->epnum, is_out ? "out" : "in",
-			qh->h_addr_reg, qh->h_port_reg,
-			len);
+	                          "h_addr%02x h_port%02x bytes %d\n",
+	        is_out ? "-->" : "<--",
+	        epnum, urb, urb->dev->speed,
+	        qh->addr_reg, qh->epnum, is_out ? "out" : "in",
+	        qh->h_addr_reg, qh->h_port_reg,
+	        len);
 
 	musb_ep_select(musb, mbase, epnum);
 
@@ -830,7 +830,7 @@ static void musb_ep_program(struct musb *musb, u8 epnum,
 		musb_writew(epio, MUSB_TXCSR, csr);
 		hw_ep->tx_channel = NULL;
 	} else if (!is_out && musb_is_intr_sched(musb) &&
-				qh->type == USB_ENDPOINT_XFER_INT) {
+	           qh->type == USB_ENDPOINT_XFER_INT) {
 		use_dma = 0;
 		musb->hold_count = HS_HOLD_VAL;
 		if (musb->port1_status & USB_PORT_STAT_HIGH_SPEED)
@@ -843,7 +843,7 @@ static void musb_ep_program(struct musb *musb, u8 epnum,
 		dma_channel = is_out ? hw_ep->tx_channel : hw_ep->rx_channel;
 		if (!dma_channel) {
 			dma_channel = dma_controller->channel_alloc(
-					dma_controller, hw_ep, is_out);
+			                       dma_controller, hw_ep, is_out);
 			if (is_out)
 				hw_ep->tx_channel = dma_channel;
 			else
