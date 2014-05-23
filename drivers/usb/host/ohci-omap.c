@@ -18,18 +18,16 @@
 #include <linux/jiffies.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
-#include <linux/err.h>
 #include <linux/gpio.h>
 
+#include <mach/hardware.h>
 #include <asm/io.h>
 #include <asm/mach-types.h>
 
 #include <plat/mux.h>
-#include <plat/fpga.h>
-
-#include <mach/hardware.h>
 #include <mach/irqs.h>
-#include <mach/usb.h>
+#include <plat/fpga.h>
+#include <plat/usb.h>
 
 
 /* OMAP-1510 OHCI has its own MMU for DMA */
@@ -169,15 +167,14 @@ static int omap_1510_local_bus_init(void)
 
 static void start_hnp(struct ohci_hcd *ohci)
 {
-	struct usb_hcd *hcd = ohci_to_hcd(ohci);
-	const unsigned	port = hcd->self.otg_port - 1;
+	const unsigned	port = ohci_to_hcd(ohci)->self.otg_port - 1;
 	unsigned long	flags;
 	u32 l;
 
-	otg_start_hnp(hcd->phy->otg);
+	otg_start_hnp(ohci->transceiver);
 
 	local_irq_save(flags);
-	hcd->phy->state = OTG_STATE_A_SUSPEND;
+	ohci->transceiver->state = OTG_STATE_A_SUSPEND;
 	writel (RH_PS_PSS, &ohci->regs->roothub.portstatus [port]);
 	l = omap_readl(OTG_CTRL);
 	l &= ~OTG_A_BUSREQ;
@@ -208,24 +205,24 @@ static int ohci_omap_init(struct usb_hcd *hcd)
 	need_transceiver = need_transceiver
 			|| machine_is_omap_h2() || machine_is_omap_h3();
 
-	/* XXX OMAP16xx only */
-	if (config->ocpi_enable)
-		config->ocpi_enable();
+	if (cpu_is_omap16xx())
+		ocpi_enable();
 
 #ifdef	CONFIG_USB_OTG
 	if (need_transceiver) {
-		hcd->phy = usb_get_phy(USB_PHY_TYPE_USB2);
-		if (!IS_ERR_OR_NULL(hcd->phy)) {
-			int	status = otg_set_host(hcd->phy->otg,
+		ohci->transceiver = otg_get_transceiver();
+		if (ohci->transceiver) {
+			int	status = otg_set_host(ohci->transceiver,
 						&ohci_to_hcd(ohci)->self);
-			dev_dbg(hcd->self.controller, "init %s phy, status %d\n",
-					hcd->phy->label, status);
+			dev_dbg(hcd->self.controller, "init %s transceiver, status %d\n",
+					ohci->transceiver->label, status);
 			if (status) {
-				usb_put_phy(hcd->phy);
+				if (ohci->transceiver)
+					put_device(ohci->transceiver->dev);
 				return status;
 			}
 		} else {
-			dev_err(hcd->self.controller, "can't find phy\n");
+			dev_err(hcd->self.controller, "can't find transceiver\n");
 			return -ENODEV;
 		}
 		ohci->start_hnp = start_hnp;
@@ -403,10 +400,12 @@ err0:
 static inline void
 usb_hcd_omap_remove (struct usb_hcd *hcd, struct platform_device *pdev)
 {
+	struct ohci_hcd		*ohci = hcd_to_ohci (hcd);
+
 	usb_remove_hcd(hcd);
-	if (!IS_ERR_OR_NULL(hcd->phy)) {
-		(void) otg_set_host(hcd->phy->otg, 0);
-		usb_put_phy(hcd->phy);
+	if (ohci->transceiver) {
+		(void) otg_set_host(ohci->transceiver, 0);
+		put_device(ohci->transceiver->dev);
 	}
 	if (machine_is_omap_osk())
 		gpio_free(9);

@@ -6,7 +6,6 @@
  * The TUSB6020, using VLYNQ, has CPPI that looks much like DaVinci.
  */
 
-#include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/usb.h>
@@ -360,7 +359,7 @@ cppi_dump_rx(int level, struct cppi_channel *c, const char *tag)
 {
 	void __iomem			*base = c->controller->mregs;
 	struct cppi_rx_stateram __iomem	*rx = c->state_ram;
-	struct musb			*musb = c->controller->musb;
+	struct musb		*musb = c->controller->musb;
 
 	musb_ep_select(musb, base, c->index + 1);
 
@@ -392,7 +391,7 @@ cppi_dump_tx(int level, struct cppi_channel *c, const char *tag)
 {
 	void __iomem			*base = c->controller->mregs;
 	struct cppi_tx_stateram __iomem	*tx = c->state_ram;
-	struct musb			*musb = c->controller->musb;
+	struct musb		*musb = c->controller->musb;
 
 	musb_ep_select(musb, base, c->index + 1);
 
@@ -1566,3 +1565,16 @@ static int cppi_channel_abort(struct dma_channel *channel)
  * Power Management ... probably turn off cppi during suspend, restart;
  * check state ram?  Clocking is presumably shared with usb core.
  */
+MODULE_DESCRIPTION("CPPI dma controller driver for musb");
+MODULE_LICENSE("GPL v2");
+
+static int __init cppi_dma_init(void)
+{
+	return 0;
+}
+module_init(cppi_dma_init);
+
+static void __exit cppi_dma__exit(void)
+{
+}
+module_exit(cppi_dma__exit);

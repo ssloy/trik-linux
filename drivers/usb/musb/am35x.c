@@ -29,7 +29,6 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/clk.h>
-#include <linux/err.h>
 #include <linux/io.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
@@ -49,9 +48,7 @@
 #define USB_STAT_REG		0x08
 #define USB_EMULATION_REG	0x0c
 /* 0x10 Reserved */
-#define USB_AUTOREQ_REG		0x14
 #define USB_SRP_FIX_TIME_REG	0x18
-#define USB_TEARDOWN_REG	0x1c
 #define EP_INTR_SRC_REG		0x20
 #define EP_INTR_SRC_SET_REG	0x24
 #define EP_INTR_SRC_CLEAR_REG	0x28
@@ -115,7 +112,7 @@ static u16 rx_comp_q[] = {65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65,
 				65, 65};
 
 /* Fair scheduling */
-static u32 dma_sched_table[] = {
+u32 dma_sched_table[] = {
 	0x81018000, 0x83038202, 0x85058404, 0x87078606,
 	0x89098808, 0x8b0b8a0a, 0x8d0d8c0c, 0x00008e0e
 };
@@ -202,7 +199,7 @@ static const struct cppi41_tx_ch tx_ch_info[] = {
 /* Queues 0 to 66 are pre-assigned, others are spare */
 static const u32 assigned_queues[] = { 0xffffffff, 0xffffffff, 0x7 };
 
-static int __devinit cppi41_init(struct musb *musb)
+int __devinit cppi41_init(struct musb *musb)
 {
 	struct usb_cppi41_info *cppi_info = &usb_cppi41_info[musb->id];
 	u16 numch, blknum, order, i;
@@ -258,8 +255,7 @@ static int __devinit cppi41_init(struct musb *musb)
 			dma_sched_table, numch);
 	return 0;
 }
-
-static void cppi41_free(void)
+void cppi41_free(void)
 {
 	u32 numch, blknum, order;
 	struct usb_cppi41_info *cppi_info = &usb_cppi41_info[0];
@@ -418,7 +414,6 @@ static irqreturn_t am35x_musb_interrupt(int irq, void *hci)
 	struct device *dev = musb->controller;
 	struct musb_hdrc_platform_data *plat = dev->platform_data;
 	struct omap_musb_board_data *data = plat->board_data;
-	struct usb_otg *otg = musb->xceiv->otg;
 	unsigned long flags;
 	irqreturn_t ret = IRQ_NONE;
 	u32 pend1 = 0, pend2 = 0, tx, rx;
@@ -508,14 +503,14 @@ static irqreturn_t am35x_musb_interrupt(int irq, void *hci)
 			WARNING("VBUS error workaround (delay coming)\n");
 		} else if (is_host_enabled(musb) && drvvbus) {
 			MUSB_HST_MODE(musb);
-			otg->default_a = 1;
+			musb->xceiv->default_a = 1;
 			musb->xceiv->state = OTG_STATE_A_WAIT_VRISE;
 			portstate(musb->port1_status |= USB_PORT_STAT_POWER);
 			del_timer(&otg_workaround);
 		} else {
 			musb->is_active = 0;
 			MUSB_DEV_MODE(musb);
-			otg->default_a = 0;
+			musb->xceiv->default_a = 0;
 			musb->xceiv->state = OTG_STATE_B_IDLE;
 			portstate(musb->port1_status &= ~USB_PORT_STAT_POWER);
 		}
@@ -527,12 +522,6 @@ static irqreturn_t am35x_musb_interrupt(int irq, void *hci)
 				err ? " ERROR" : "",
 				devctl);
 		ret = IRQ_HANDLED;
-	}
-
-	/* Drop spurious RX and TX if device is disconnected */
-	if (musb->int_usb & MUSB_INTR_DISCONNECT) {
-		musb->int_tx = 0;
-		musb->int_rx = 0;
 	}
 
 	if (musb->int_tx || musb->int_rx || musb->int_usb)
@@ -587,9 +576,9 @@ static int am35x_musb_init(struct musb *musb)
 	if (!rev)
 		return -ENODEV;
 
-	usb_nop_xceiv_register();
-	musb->xceiv = devm_usb_get_phy(dev, USB_PHY_TYPE_USB2);
-	if (IS_ERR_OR_NULL(musb->xceiv))
+	usb_nop_xceiv_register(musb->id);
+	musb->xceiv = otg_get_transceiver(musb->id);
+	if (!musb->xceiv)
 		return -ENODEV;
 
 	if (is_host_enabled(musb))
@@ -604,7 +593,7 @@ static int am35x_musb_init(struct musb *musb)
 
 	/* Start the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
-		data->set_phy_power(1);
+		data->set_phy_power(0, 1);
 
 	msleep(5);
 
@@ -632,13 +621,11 @@ static int am35x_musb_exit(struct musb *musb)
 
 	/* Shutdown the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
-		data->set_phy_power(0);
+		data->set_phy_power(0, 0);
 
-	usb_nop_xceiv_unregister();
+	otg_put_transceiver(musb->xceiv);
+	usb_nop_xceiv_unregister(musb->id);
 
-#ifdef CONFIG_USB_TI_CPPI41_DMA
-	cppi41_free();
-#endif
 	return 0;
 }
 
@@ -675,20 +662,19 @@ static void am35x_musb_read_fifo(struct musb_hw_ep *hw_ep, u16 len, u8 *dst)
 static const struct musb_platform_ops am35x_ops = {
 	.fifo_mode	= 4,
 	.flags		= MUSB_GLUE_EP_ADDR_FLAT_MAPPING | MUSB_GLUE_DMA_CPPI41,
-
 	.init		= am35x_musb_init,
 	.exit		= am35x_musb_exit,
 
 	.enable		= am35x_musb_enable,
 	.disable	= am35x_musb_disable,
 
-	.read_fifo	= am35x_musb_read_fifo,
-	.write_fifo	= musb_write_fifo,
-
 	.set_mode	= am35x_musb_set_mode,
 	.try_idle	= am35x_musb_try_idle,
 
 	.set_vbus	= am35x_musb_set_vbus,
+
+	.read_fifo  = am35x_musb_read_fifo,
+	.write_fifo = musb_write_fifo,
 
 	.dma_controller_create = cppi41_dma_controller_create,
 	.dma_controller_destroy = cppi41_dma_controller_destroy,
@@ -696,7 +682,7 @@ static const struct musb_platform_ops am35x_ops = {
 
 static u64 am35x_dmamask = DMA_BIT_MASK(32);
 
-static int __devinit am35x_probe(struct platform_device *pdev)
+static int __init am35x_probe(struct platform_device *pdev)
 {
 	struct musb_hdrc_platform_data	*pdata = pdev->dev.platform_data;
 	struct platform_device		*musb;
@@ -802,11 +788,12 @@ err0:
 	return ret;
 }
 
-static int __devexit am35x_remove(struct platform_device *pdev)
+static int __exit am35x_remove(struct platform_device *pdev)
 {
 	struct am35x_glue	*glue = platform_get_drvdata(pdev);
 
-	platform_device_unregister(glue->musb);
+	platform_device_del(glue->musb);
+	/*platform_device_put(glue->musb);*/
 	clk_disable(glue->clk);
 	clk_disable(glue->phy_clk);
 	clk_put(glue->clk);
@@ -825,7 +812,7 @@ static int am35x_suspend(struct device *dev)
 
 	/* Shutdown the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
-		data->set_phy_power(0);
+		data->set_phy_power(0, 0);
 
 	clk_disable(glue->phy_clk);
 	clk_disable(glue->clk);
@@ -842,7 +829,7 @@ static int am35x_resume(struct device *dev)
 
 	/* Start the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
-		data->set_phy_power(1);
+		data->set_phy_power(0, 1);
 
 	ret = clk_enable(glue->phy_clk);
 	if (ret) {
@@ -870,8 +857,7 @@ static struct dev_pm_ops am35x_pm_ops = {
 #endif
 
 static struct platform_driver am35x_driver = {
-	.probe		= am35x_probe,
-	.remove		= __devexit_p(am35x_remove),
+	.remove		= __exit_p(am35x_remove),
 	.driver		= {
 		.name	= "musb-am35x",
 		.pm	= DEV_PM_OPS,
@@ -884,12 +870,15 @@ MODULE_LICENSE("GPL v2");
 
 static int __init am35x_init(void)
 {
-	return platform_driver_register(&am35x_driver);
+	return platform_driver_probe(&am35x_driver, am35x_probe);
 }
-module_init(am35x_init);
+subsys_initcall(am35x_init);
 
 static void __exit am35x_exit(void)
 {
+#ifdef CONFIG_USB_TI_CPPI41_DMA
+	cppi41_free();
+#endif
 	platform_driver_unregister(&am35x_driver);
 }
 module_exit(am35x_exit);

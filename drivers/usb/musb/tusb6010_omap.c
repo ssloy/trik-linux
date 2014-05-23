@@ -727,3 +727,17 @@ out:
 	return NULL;
 }
 EXPORT_SYMBOL(tusb_dma_controller_create);
+
+MODULE_DESCRIPTION("TUSB dma controller driver for musb");
+MODULE_LICENSE("GPL v2");
+
+static int __init tusb_dma_init(void)
+{
+	return 0;
+}
+module_init(tusb_dma_init);
+
+static void __exit tusb_dma__exit(void)
+{
+}
+module_exit(tusb_dma__exit);

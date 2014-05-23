@@ -30,6 +30,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
+#include <linux/module.h>
 #include <linux/device.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
@@ -389,7 +390,7 @@ inventra_dma_controller_create(struct musb *musb, void __iomem *base)
 	struct platform_device *pdev = to_platform_device(dev);
 	int irq = platform_get_irq_byname(pdev, "dma");
 
-	if (irq <= 0) {
+	if (irq == 0) {
 		dev_err(dev, "No DMA interrupt line!\n");
 		return NULL;
 	}
@@ -422,3 +423,17 @@ inventra_dma_controller_create(struct musb *musb, void __iomem *base)
 	return &controller->controller;
 }
 EXPORT_SYMBOL(inventra_dma_controller_create);
+
+MODULE_DESCRIPTION("MUSB Inventra dma controller driver");
+MODULE_LICENSE("GPL v2");
+
+static int __init inventra_dma_init(void)
+{
+	return 0;
+}
+module_init(inventra_dma_init);
+
+static void __exit inventra_dma__exit(void)
+{
+}
+module_exit(inventra_dma__exit);

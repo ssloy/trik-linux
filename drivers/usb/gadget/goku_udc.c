@@ -43,6 +43,7 @@
 #include <asm/byteorder.h>
 #include <asm/io.h>
 #include <asm/irq.h>
+#include <asm/system.h>
 #include <asm/unaligned.h>
 
 
@@ -102,7 +103,7 @@ goku_ep_enable(struct usb_ep *_ep, const struct usb_endpoint_descriptor *desc)
 	unsigned long	flags;
 
 	ep = container_of(_ep, struct goku_ep, ep);
-	if (!_ep || !desc
+	if (!_ep || !desc || ep->desc
 			|| desc->bDescriptorType != USB_DT_ENDPOINT)
 		return -EINVAL;
 	dev = ep->dev;
@@ -176,7 +177,7 @@ goku_ep_enable(struct usb_ep *_ep, const struct usb_endpoint_descriptor *desc)
 	command(ep->dev->regs, COMMAND_RESET, ep->num);
 	ep->ep.maxpacket = max;
 	ep->stopped = 0;
-	ep->ep.desc = desc;
+	ep->desc = desc;
 	spin_unlock_irqrestore(&ep->dev->lock, flags);
 
 	DBG(dev, "enable %s %s %s maxpacket %u\n", ep->ep.name,
@@ -233,7 +234,7 @@ static void ep_reset(struct goku_udc_regs __iomem *regs, struct goku_ep *ep)
 	}
 
 	ep->ep.maxpacket = MAX_FIFO_SIZE;
-	ep->ep.desc = NULL;
+	ep->desc = NULL;
 	ep->stopped = 1;
 	ep->irqs = 0;
 	ep->dma = 0;
@@ -246,7 +247,7 @@ static int goku_ep_disable(struct usb_ep *_ep)
 	unsigned long	flags;
 
 	ep = container_of(_ep, struct goku_ep, ep);
-	if (!_ep || !ep->ep.desc)
+	if (!_ep || !ep->desc)
 		return -ENODEV;
 	dev = ep->dev;
 	if (dev->ep0state == EP0_SUSPEND)
@@ -309,9 +310,12 @@ done(struct goku_ep *ep, struct goku_request *req, int status)
 		status = req->req.status;
 
 	dev = ep->dev;
-
-	if (ep->dma)
-		usb_gadget_unmap_request(&dev->gadget, &req->req, ep->is_in);
+	if (req->mapped) {
+		pci_unmap_single(dev->pdev, req->req.dma, req->req.length,
+			ep->is_in ? PCI_DMA_TODEVICE : PCI_DMA_FROMDEVICE);
+		req->req.dma = DMA_ADDR_INVALID;
+		req->mapped = 0;
+	}
 
 #ifndef USB_TRACE
 	if (status && status != -ESHUTDOWN)
@@ -721,7 +725,7 @@ goku_queue(struct usb_ep *_ep, struct usb_request *_req, gfp_t gfp_flags)
 			|| !_req->buf || !list_empty(&req->queue)))
 		return -EINVAL;
 	ep = container_of(_ep, struct goku_ep, ep);
-	if (unlikely(!_ep || (!ep->ep.desc && ep->num != 0)))
+	if (unlikely(!_ep || (!ep->desc && ep->num != 0)))
 		return -EINVAL;
 	dev = ep->dev;
 	if (unlikely(!dev->driver || dev->gadget.speed == USB_SPEED_UNKNOWN))
@@ -732,11 +736,10 @@ goku_queue(struct usb_ep *_ep, struct usb_request *_req, gfp_t gfp_flags)
 		return -EBUSY;
 
 	/* set up dma mapping in case the caller didn't */
-	if (ep->dma) {
-		status = usb_gadget_map_request(&dev->gadget, &req->req,
-				ep->is_in);
-		if (status)
-			return status;
+	if (ep->dma && _req->dma == DMA_ADDR_INVALID) {
+		_req->dma = pci_map_single(dev->pdev, _req->buf, _req->length,
+			ep->is_in ? PCI_DMA_TODEVICE : PCI_DMA_FROMDEVICE);
+		req->mapped = 1;
 	}
 
 #ifdef USB_TRACE
@@ -814,7 +817,7 @@ static int goku_dequeue(struct usb_ep *_ep, struct usb_request *_req)
 	unsigned long		flags;
 
 	ep = container_of(_ep, struct goku_ep, ep);
-	if (!_ep || !_req || (!ep->ep.desc && ep->num != 0))
+	if (!_ep || !_req || (!ep->desc && ep->num != 0))
 		return -EINVAL;
 	dev = ep->dev;
 	if (!dev->driver)
@@ -895,7 +898,7 @@ static int goku_set_halt(struct usb_ep *_ep, int value)
 			return -EINVAL;
 
 	/* don't change EPxSTATUS_EP_INVALID to READY */
-	} else if (!ep->ep.desc) {
+	} else if (!ep->desc) {
 		DBG(ep->dev, "%s %s inactive?\n", __func__, ep->ep.name);
 		return -EINVAL;
 	}
@@ -954,7 +957,7 @@ static void goku_fifo_flush(struct usb_ep *_ep)
 	VDBG(ep->dev, "%s %s\n", __func__, ep->ep.name);
 
 	/* don't change EPxSTATUS_EP_INVALID to READY */
-	if (!ep->ep.desc && ep->num != 0) {
+	if (!ep->desc && ep->num != 0) {
 		DBG(ep->dev, "%s %s inactive?\n", __func__, ep->ep.name);
 		return;
 	}
@@ -1151,7 +1154,7 @@ udc_proc_read(char *buffer, char **start, off_t off, int count,
 		struct goku_ep		*ep = &dev->ep [i];
 		struct goku_request	*req;
 
-		if (i && !ep->ep.desc)
+		if (i && !ep->desc)
 			continue;
 
 		tmp = readl(ep->reg_status);
@@ -1472,8 +1475,7 @@ static void ep0_setup(struct goku_udc *dev)
 			case USB_RECIP_ENDPOINT:
 				tmp = le16_to_cpu(ctrl.wIndex) & 0x0f;
 				/* active endpoint */
-				if (tmp > 3 ||
-				    (!dev->ep[tmp].ep.desc && tmp != 0))
+				if (tmp > 3 || (!dev->ep[tmp].desc && tmp != 0))
 					goto stall;
 				if (ctrl.wIndex & cpu_to_le16(
 						USB_DIR_IN)) {
@@ -1836,7 +1838,7 @@ static int goku_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	/* init to known state, then setup irqs */
 	udc_reset(dev);
 	udc_reinit (dev);
-	if (request_irq(pdev->irq, goku_irq, IRQF_SHARED,
+	if (request_irq(pdev->irq, goku_irq, IRQF_SHARED/*|IRQF_SAMPLE_RANDOM*/,
 			driver_name, dev) != 0) {
 		DBG(dev, "request interrupt %d failed\n", pdev->irq);
 		retval = -EBUSY;
@@ -1895,4 +1897,14 @@ static struct pci_driver goku_pci_driver = {
 	/* FIXME add power management support */
 };
 
-module_pci_driver(goku_pci_driver);
+static int __init init (void)
+{
+	return pci_register_driver (&goku_pci_driver);
+}
+module_init (init);
+
+static void __exit cleanup (void)
+{
+	pci_unregister_driver (&goku_pci_driver);
+}
+module_exit (cleanup);

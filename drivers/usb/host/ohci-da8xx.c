@@ -51,7 +51,7 @@ static void ohci_da8xx_clock(int on)
 			cfgchip2 |= CFGCHIP2_PHY_PLLON;
 			__raw_writel(cfgchip2, CFGCHIP2);
 
-			pr_info("Waiting for USB 2.0 PHY clock good for USB 1.1...\n");
+			pr_info("Waiting for USB PHY clock good...\n");
 			while (!(__raw_readl(CFGCHIP2) & CFGCHIP2_PHYCLKGD))
 				cpu_relax();
 		}
@@ -78,9 +78,8 @@ static void ohci_da8xx_ocic_handler(struct da8xx_ohci_root_hub *hub,
 	ocic_mask |= 1 << port;
 
 	/* Once over-current is detected, the port needs to be powered down */
-	if (hub->get_oci && hub->get_oci(port, hub) > 0)
-		if (hub->set_power)
-			hub->set_power(port, hub, 0);
+	if (hub->get_oci(port, hub) > 0)
+		hub->set_power(port, hub, 0);
 }
 
 static int ohci_da8xx_init(struct usb_hcd *hcd)
@@ -127,6 +126,12 @@ static int ohci_da8xx_init(struct usb_hcd *hcd)
 	return result;
 }
 
+static void ohci_da8xx_stop(struct usb_hcd *hcd)
+{
+	ohci_stop(hcd);
+	ohci_da8xx_clock(0);
+}
+
 static int ohci_da8xx_start(struct usb_hcd *hcd)
 {
 	struct ohci_hcd	*ohci		= hcd_to_ohci(hcd);
@@ -134,15 +139,9 @@ static int ohci_da8xx_start(struct usb_hcd *hcd)
 
 	result = ohci_run(ohci);
 	if (result < 0)
-		ohci_stop(hcd);
+		ohci_da8xx_stop(hcd);
 
 	return result;
-}
-
-static void ohci_da8xx_shutdown(struct usb_hcd *hcd)
-{
-	ohci_shutdown(hcd);
-	ohci_da8xx_clock(0);
 }
 
 /*
@@ -218,7 +217,8 @@ check_port:
 			if (!hub->set_power)
 				return -EPIPE;
 
-			return hub->set_power(wIndex, hub, temp) ? -EPIPE : 0;
+			return hub->set_power(wIndex, hub,
+					temp) ? -EPIPE : 0;
 		case USB_PORT_FEAT_C_OVER_CURRENT:
 			dev_dbg(dev, "%sPortFeature(%u): %s\n",
 				temp ? "Set" : "Clear", wIndex,
@@ -251,8 +251,8 @@ static const struct hc_driver ohci_da8xx_hc_driver = {
 	 */
 	.reset			= ohci_da8xx_init,
 	.start			= ohci_da8xx_start,
-	.stop			= ohci_stop,
-	.shutdown		= ohci_da8xx_shutdown,
+	.stop			= ohci_da8xx_stop,
+	.shutdown		= ohci_shutdown,
 
 	/*
 	 * managing i/o requests and associated device resources
@@ -345,20 +345,16 @@ static int usb_hcd_da8xx_probe(const struct hc_driver *driver,
 		error = -ENODEV;
 		goto err4;
 	}
-
 	error = usb_add_hcd(hcd, irq, 0);
 	if (error)
 		goto err4;
 
 	if (hub->ocic_notify) {
 		error = hub->ocic_notify(ohci_da8xx_ocic_handler, hub);
-		if (error)
-			goto err5;
+		if (!error)
+			return 0;
 	}
 
-	return 0;
-
-err5:
 	usb_remove_hcd(hcd);
 err4:
 	iounmap(hcd->regs);
@@ -387,8 +383,7 @@ usb_hcd_da8xx_remove(struct usb_hcd *hcd, struct platform_device *pdev)
 {
 	struct da8xx_ohci_root_hub *hub	= pdev->dev.platform_data;
 
-	if (hub->ocic_notify)
-		hub->ocic_notify(NULL, hub);
+	hub->ocic_notify(NULL, NULL);
 	usb_remove_hcd(hcd);
 	iounmap(hcd->regs);
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
@@ -460,5 +455,3 @@ static struct platform_driver ohci_hcd_da8xx_driver = {
 		.name	= "ohci",
 	},
 };
-
-MODULE_ALIAS("platform:ohci");

@@ -275,24 +275,24 @@ struct usb_ep *usb_ep_autoconfig_ss(
 		/* ep-e, ep-f are PIO with only 64 byte fifos */
 		ep = find_ep (gadget, "ep-e");
 		if (ep && ep_matches(gadget, ep, desc, ep_comp))
-			goto found_ep;
+			return ep;
 		ep = find_ep (gadget, "ep-f");
 		if (ep && ep_matches(gadget, ep, desc, ep_comp))
-			goto found_ep;
+			return ep;
 
 	} else if (gadget_is_goku (gadget)) {
 		if (USB_ENDPOINT_XFER_INT == type) {
 			/* single buffering is enough */
 			ep = find_ep(gadget, "ep3-bulk");
 			if (ep && ep_matches(gadget, ep, desc, ep_comp))
-				goto found_ep;
+				return ep;
 		} else if (USB_ENDPOINT_XFER_BULK == type
 				&& (USB_DIR_IN & desc->bEndpointAddress)) {
 			/* DMA may be available */
 			ep = find_ep(gadget, "ep2-bulk");
 			if (ep && ep_matches(gadget, ep, desc,
 					      ep_comp))
-				goto found_ep;
+				return ep;
 		}
 
 #ifdef CONFIG_BLACKFIN
@@ -311,22 +311,18 @@ struct usb_ep *usb_ep_autoconfig_ss(
 		} else
 			ep = NULL;
 		if (ep && ep_matches(gadget, ep, desc, ep_comp))
-			goto found_ep;
+			return ep;
 #endif
 	}
 
 	/* Second, look at endpoints until an unclaimed one looks usable */
 	list_for_each_entry (ep, &gadget->ep_list, ep_list) {
 		if (ep_matches(gadget, ep, desc, ep_comp))
-			goto found_ep;
+			return ep;
 	}
 
 	/* Fail */
 	return NULL;
-found_ep:
-	ep->desc = NULL;
-	ep->comp_desc = NULL;
-	return ep;
 }
 
 /**
@@ -384,6 +380,7 @@ void usb_ep_autoconfig_reset (struct usb_gadget *gadget)
 
 	list_for_each_entry (ep, &gadget->ep_list, ep_list) {
 		ep->driver_data = NULL;
+		ep->desc = NULL;
 	}
 #ifdef	MANY_ENDPOINTS
 	in_epnum = 0;

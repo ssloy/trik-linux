@@ -242,22 +242,22 @@ int __devinit musb_init_debugfs(struct musb *musb)
 	int			ret;
 
 	root = debugfs_create_dir("musb", NULL);
-	if (!root) {
-		ret = -ENOMEM;
+	if (IS_ERR(root)) {
+		ret = PTR_ERR(root);
 		goto err0;
 	}
 
 	file = debugfs_create_file("regdump", S_IRUGO, root, musb,
 			&musb_regdump_fops);
-	if (!file) {
-		ret = -ENOMEM;
+	if (IS_ERR(file)) {
+		ret = PTR_ERR(file);
 		goto err1;
 	}
 
 	file = debugfs_create_file("testmode", S_IRUGO | S_IWUSR,
 			root, musb, &musb_test_mode_fops);
-	if (!file) {
-		ret = -ENOMEM;
+	if (IS_ERR(file)) {
+		ret = PTR_ERR(file);
 		goto err1;
 	}
 

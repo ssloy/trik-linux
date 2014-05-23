@@ -14,11 +14,30 @@
 
 static int ehci_xls_setup(struct usb_hcd *hcd)
 {
+	int	retval;
 	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
 
 	ehci->caps = hcd->regs;
+	ehci->regs = hcd->regs +
+		HC_LENGTH(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
+	dbg_hcs_params(ehci, "reset");
+	dbg_hcc_params(ehci, "reset");
 
-	return ehci_setup(hcd);
+	/* cache this readonly data; minimize chip reads */
+	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
+
+	retval = ehci_halt(ehci);
+	if (retval)
+		return retval;
+
+	/* data structure init */
+	retval = ehci_init(hcd);
+	if (retval)
+		return retval;
+
+	ehci_reset(ehci);
+
+	return retval;
 }
 
 int ehci_xls_probe_internal(const struct hc_driver *driver,

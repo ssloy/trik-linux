@@ -298,6 +298,7 @@
 	((_musb)->ops->flags & MUSB_GLUE_EP_ADDR_INDEXED_MAPPING ? \
 		(0x10 + (_offset)) : (0x100 + (0x10*(_epnum)) + (_offset)))
 
+
 #include "tusb6010.h"		/* Needed "only" for TUSB_EP0_CONF */
 
 #define MUSB_TXCSR_MODE			0x2000

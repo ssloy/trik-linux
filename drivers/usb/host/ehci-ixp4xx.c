@@ -22,10 +22,14 @@ static int ixp4xx_ehci_init(struct usb_hcd *hcd)
 	ehci->big_endian_mmio = 1;
 
 	ehci->caps = hcd->regs + 0x100;
+	ehci->regs = hcd->regs + 0x100
+		+ HC_LENGTH(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
+	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
 	hcd->has_tt = 1;
+	ehci_reset(ehci);
 
-	retval = ehci_setup(hcd);
+	retval = ehci_init(hcd);
 	if (retval)
 		return retval;
 

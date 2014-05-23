@@ -130,12 +130,60 @@ struct keyspan_port_private {
 #include "keyspan_usa67msg.h"
 
 
-module_usb_serial_driver(serial_drivers, keyspan_ids_combined);
+/* Functions used by new usb-serial code. */
+static int __init keyspan_init(void)
+{
+	int retval;
+	retval = usb_serial_register(&keyspan_pre_device);
+	if (retval)
+		goto failed_pre_device_register;
+	retval = usb_serial_register(&keyspan_1port_device);
+	if (retval)
+		goto failed_1port_device_register;
+	retval = usb_serial_register(&keyspan_2port_device);
+	if (retval)
+		goto failed_2port_device_register;
+	retval = usb_serial_register(&keyspan_4port_device);
+	if (retval)
+		goto failed_4port_device_register;
+	retval = usb_register(&keyspan_driver);
+	if (retval)
+		goto failed_usb_register;
+
+	printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_VERSION ":"
+	       DRIVER_DESC "\n");
+
+	return 0;
+failed_usb_register:
+	usb_serial_deregister(&keyspan_4port_device);
+failed_4port_device_register:
+	usb_serial_deregister(&keyspan_2port_device);
+failed_2port_device_register:
+	usb_serial_deregister(&keyspan_1port_device);
+failed_1port_device_register:
+	usb_serial_deregister(&keyspan_pre_device);
+failed_pre_device_register:
+	return retval;
+}
+
+static void __exit keyspan_exit(void)
+{
+	usb_deregister(&keyspan_driver);
+	usb_serial_deregister(&keyspan_pre_device);
+	usb_serial_deregister(&keyspan_1port_device);
+	usb_serial_deregister(&keyspan_2port_device);
+	usb_serial_deregister(&keyspan_4port_device);
+}
+
+module_init(keyspan_init);
+module_exit(keyspan_exit);
 
 static void keyspan_break_ctl(struct tty_struct *tty, int break_state)
 {
 	struct usb_serial_port *port = tty->driver_data;
 	struct keyspan_port_private 	*p_priv;
+
+	dbg("%s", __func__);
 
 	p_priv = usb_get_serial_port_data(port);
 
@@ -155,6 +203,8 @@ static void keyspan_set_termios(struct tty_struct *tty,
 	struct keyspan_port_private 	*p_priv;
 	const struct keyspan_device_details	*d_details;
 	unsigned int 			cflag;
+
+	dbg("%s", __func__);
 
 	p_priv = usb_get_serial_port_data(port);
 	d_details = p_priv->device_details;
@@ -176,7 +226,7 @@ static void keyspan_set_termios(struct tty_struct *tty,
 	tty_encode_baud_rate(tty, baud_rate, baud_rate);
 	/* set CTS/RTS handshake etc. */
 	p_priv->cflag = cflag;
-	p_priv->flow_control = (cflag & CRTSCTS) ? flow_cts : flow_none;
+	p_priv->flow_control = (cflag & CRTSCTS)? flow_cts: flow_none;
 
 	/* Mark/Space not supported */
 	tty->termios->c_cflag &= ~CMSPAR;
@@ -302,6 +352,8 @@ static void	usa26_indat_callback(struct urb *urb)
 	unsigned char 		*data = urb->transfer_buffer;
 	int status = urb->status;
 
+	dbg("%s", __func__);
+
 	endpoint = usb_pipeendpoint(urb->pipe);
 
 	if (status) {
@@ -363,6 +415,8 @@ static void	usa2x_outdat_callback(struct urb *urb)
 
 static void	usa26_inack_callback(struct urb *urb)
 {
+	dbg("%s", __func__);
+
 }
 
 static void	usa26_outcont_callback(struct urb *urb)
@@ -444,6 +498,7 @@ exit: ;
 
 static void	usa26_glocont_callback(struct urb *urb)
 {
+	dbg("%s", __func__);
 }
 
 
@@ -455,6 +510,8 @@ static void usa28_indat_callback(struct urb *urb)
 	unsigned char           *data;
 	struct keyspan_port_private             *p_priv;
 	int status = urb->status;
+
+	dbg("%s", __func__);
 
 	port =  urb->context;
 	p_priv = usb_get_serial_port_data(port);
@@ -474,7 +531,7 @@ static void usa28_indat_callback(struct urb *urb)
 		p_priv = usb_get_serial_port_data(port);
 		data = urb->transfer_buffer;
 
-		tty = tty_port_tty_get(&port->port);
+		tty =tty_port_tty_get(&port->port);
 		if (tty && urb->actual_length) {
 			tty_insert_flip_string(tty, data, urb->actual_length);
 			tty_flip_buffer_push(tty);
@@ -494,6 +551,7 @@ static void usa28_indat_callback(struct urb *urb)
 
 static void	usa28_inack_callback(struct urb *urb)
 {
+	dbg("%s", __func__);
 }
 
 static void	usa28_outcont_callback(struct urb *urb)
@@ -557,9 +615,9 @@ static void	usa28_instat_callback(struct urb *urb)
 	p_priv->dcd_state = ((msg->dcd) ? 1 : 0);
 	p_priv->ri_state = ((msg->ri) ? 1 : 0);
 
-	if (old_dcd_state != p_priv->dcd_state && old_dcd_state) {
+	if( old_dcd_state != p_priv->dcd_state && old_dcd_state) {
 		tty = tty_port_tty_get(&port->port);
-		if (tty && !C_CLOCAL(tty))
+		if (tty && !C_CLOCAL(tty)) 
 			tty_hangup(tty);
 		tty_kref_put(tty);
 	}
@@ -573,6 +631,7 @@ exit: ;
 
 static void	usa28_glocont_callback(struct urb *urb)
 {
+	dbg("%s", __func__);
 }
 
 
@@ -582,6 +641,8 @@ static void	usa49_glocont_callback(struct urb *urb)
 	struct usb_serial_port *port;
 	struct keyspan_port_private *p_priv;
 	int i;
+
+	dbg("%s", __func__);
 
 	serial =  urb->context;
 	for (i = 0; i < serial->num_ports; ++i) {
@@ -609,6 +670,8 @@ static void	usa49_instat_callback(struct urb *urb)
 	struct keyspan_port_private	 	*p_priv;
 	int old_dcd_state;
 	int status = urb->status;
+
+	dbg("%s", __func__);
 
 	serial =  urb->context;
 
@@ -662,6 +725,7 @@ exit:	;
 
 static void	usa49_inack_callback(struct urb *urb)
 {
+	dbg("%s", __func__);
 }
 
 static void	usa49_indat_callback(struct urb *urb)
@@ -672,6 +736,8 @@ static void	usa49_indat_callback(struct urb *urb)
 	struct tty_struct	*tty;
 	unsigned char 		*data = urb->transfer_buffer;
 	int status = urb->status;
+
+	dbg("%s", __func__);
 
 	endpoint = usb_pipeendpoint(urb->pipe);
 
@@ -721,6 +787,8 @@ static void usa49wg_indat_callback(struct urb *urb)
 	struct tty_struct	*tty;
 	unsigned char 		*data = urb->transfer_buffer;
 	int status = urb->status;
+
+	dbg("%s", __func__);
 
 	serial = urb->context;
 
@@ -784,6 +852,7 @@ static void usa49wg_indat_callback(struct urb *urb)
 /* not used, usa-49 doesn't have per-port control endpoints */
 static void usa49_outcont_callback(struct urb *urb)
 {
+	dbg("%s", __func__);
 }
 
 static void usa90_indat_callback(struct urb *urb)
@@ -795,6 +864,8 @@ static void usa90_indat_callback(struct urb *urb)
 	struct tty_struct	*tty;
 	unsigned char 		*data = urb->transfer_buffer;
 	int status = urb->status;
+
+	dbg("%s", __func__);
 
 	endpoint = usb_pipeendpoint(urb->pipe);
 
@@ -932,6 +1003,8 @@ static void	usa67_instat_callback(struct urb *urb)
 	int old_dcd_state;
 	int status = urb->status;
 
+	dbg("%s", __func__);
+
 	serial = urb->context;
 
 	if (status) {
@@ -983,6 +1056,8 @@ static void usa67_glocont_callback(struct urb *urb)
 	struct keyspan_port_private *p_priv;
 	int i;
 
+	dbg("%s", __func__);
+
 	serial = urb->context;
 	for (i = 0; i < serial->num_ports; ++i) {
 		port = serial->port[i];
@@ -1006,6 +1081,7 @@ static int keyspan_write_room(struct tty_struct *tty)
 	int				data_len;
 	struct urb			*this_urb;
 
+	dbg("%s", __func__);
 	p_priv = usb_get_serial_port_data(port);
 	d_details = p_priv->device_details;
 
@@ -1036,14 +1112,19 @@ static int keyspan_write_room(struct tty_struct *tty)
 static int keyspan_open(struct tty_struct *tty, struct usb_serial_port *port)
 {
 	struct keyspan_port_private 	*p_priv;
+	struct keyspan_serial_private 	*s_priv;
+	struct usb_serial 		*serial = port->serial;
 	const struct keyspan_device_details	*d_details;
 	int				i, err;
 	int				baud_rate, device_port;
 	struct urb			*urb;
 	unsigned int			cflag = 0;
 
+	s_priv = usb_get_serial_data(serial);
 	p_priv = usb_get_serial_port_data(port);
 	d_details = p_priv->device_details;
+
+	dbg("%s - port%d.", __func__, port->number);
 
 	/* Set some sane defaults */
 	p_priv->rts_state = 1;
@@ -1099,7 +1180,7 @@ static int keyspan_open(struct tty_struct *tty, struct usb_serial_port *port)
 	}
 	/* set CTS/RTS handshake etc. */
 	p_priv->cflag = cflag;
-	p_priv->flow_control = (cflag & CRTSCTS) ? flow_cts : flow_none;
+	p_priv->flow_control = (cflag & CRTSCTS)? flow_cts: flow_none;
 
 	keyspan_send_setup(port, 1);
 	/* mdelay(100); */
@@ -1127,8 +1208,11 @@ static void keyspan_close(struct usb_serial_port *port)
 {
 	int			i;
 	struct usb_serial	*serial = port->serial;
+	struct keyspan_serial_private 	*s_priv;
 	struct keyspan_port_private 	*p_priv;
 
+	dbg("%s", __func__);
+	s_priv = usb_get_serial_data(serial);
 	p_priv = usb_get_serial_port_data(port);
 
 	p_priv->rts_state = 0;
@@ -1235,7 +1319,7 @@ static int keyspan_fake_startup(struct usb_serial *serial)
 
 	if (request_ihex_firmware(&fw, fw_name, &serial->dev->dev)) {
 		dev_err(&serial->dev->dev, "Required keyspan firmware image (%s) unavailable.\n", fw_name);
-		return 1;
+		return(1);
 	}
 
 	dbg("Uploading Keyspan %s firmware.", fw_name);
@@ -1392,9 +1476,15 @@ static struct callbacks {
 	   data in device_details */
 static void keyspan_setup_urbs(struct usb_serial *serial)
 {
+	int				i, j;
 	struct keyspan_serial_private 	*s_priv;
 	const struct keyspan_device_details	*d_details;
+	struct usb_serial_port		*port;
+	struct keyspan_port_private	*p_priv;
 	struct callbacks		*cback;
+	int				endp;
+
+	dbg("%s", __func__);
 
 	s_priv = usb_get_serial_data(serial);
 	d_details = s_priv->device_details;
@@ -1418,6 +1508,45 @@ static void keyspan_setup_urbs(struct usb_serial *serial)
 		(serial, d_details->glocont_endpoint, USB_DIR_OUT,
 		 serial, s_priv->glocont_buf, GLOCONT_BUFLEN,
 		 cback->glocont_callback);
+
+	/* Setup endpoints for each port specific thing */
+	for (i = 0; i < d_details->num_ports; i++) {
+		port = serial->port[i];
+		p_priv = usb_get_serial_port_data(port);
+
+		/* Do indat endpoints first, once for each flip */
+		endp = d_details->indat_endpoints[i];
+		for (j = 0; j <= d_details->indat_endp_flip; ++j, ++endp) {
+			p_priv->in_urbs[j] = keyspan_setup_urb
+				(serial, endp, USB_DIR_IN, port,
+				 p_priv->in_buffer[j], 64,
+				 cback->indat_callback);
+		}
+		for (; j < 2; ++j)
+			p_priv->in_urbs[j] = NULL;
+
+		/* outdat endpoints also have flip */
+		endp = d_details->outdat_endpoints[i];
+		for (j = 0; j <= d_details->outdat_endp_flip; ++j, ++endp) {
+			p_priv->out_urbs[j] = keyspan_setup_urb
+				(serial, endp, USB_DIR_OUT, port,
+				 p_priv->out_buffer[j], 64,
+				 cback->outdat_callback);
+		}
+		for (; j < 2; ++j)
+			p_priv->out_urbs[j] = NULL;
+
+		/* inack endpoint */
+		p_priv->inack_urb = keyspan_setup_urb
+			(serial, d_details->inack_endpoints[i], USB_DIR_IN,
+			 port, p_priv->inack_buffer, 1, cback->inack_callback);
+
+		/* outcont endpoint */
+		p_priv->outcont_urb = keyspan_setup_urb
+			(serial, d_details->outcont_endpoints[i], USB_DIR_OUT,
+			 port, p_priv->outcont_buffer, 64,
+			 cback->outcont_callback);
+	}
 }
 
 /* usa19 function doesn't require prescaler */
@@ -1661,7 +1790,7 @@ static int keyspan_usa26_send_setup(struct usb_serial *serial,
 		msg.setPrescaler = 0xff;
 	}
 
-	msg.lcr = (p_priv->cflag & CSTOPB) ? STOPBITS_678_2 : STOPBITS_5678_1;
+	msg.lcr = (p_priv->cflag & CSTOPB)? STOPBITS_678_2: STOPBITS_5678_1;
 	switch (p_priv->cflag & CSIZE) {
 	case CS5:
 		msg.lcr |= USA_DATABITS_5;
@@ -1678,7 +1807,7 @@ static int keyspan_usa26_send_setup(struct usb_serial *serial,
 	}
 	if (p_priv->cflag & PARENB) {
 		/* note USA_PARITY_NONE == 0 */
-		msg.lcr |= (p_priv->cflag & PARODD) ?
+		msg.lcr |= (p_priv->cflag & PARODD)?
 			USA_PARITY_ODD : USA_PARITY_EVEN;
 	}
 	msg.setLcr = 0xff;
@@ -1769,6 +1898,8 @@ static int keyspan_usa28_send_setup(struct usb_serial *serial,
 	const struct keyspan_device_details	*d_details;
 	struct urb				*this_urb;
 	int 					device_port, err;
+
+	dbg("%s", __func__);
 
 	s_priv = usb_get_serial_data(serial);
 	p_priv = usb_get_serial_port_data(port);
@@ -1895,6 +2026,8 @@ static int keyspan_usa49_send_setup(struct usb_serial *serial,
 	struct urb				*this_urb;
 	int 					err, device_port;
 
+	dbg("%s", __func__);
+
 	s_priv = usb_get_serial_data(serial);
 	p_priv = usb_get_serial_port_data(port);
 	d_details = s_priv->device_details;
@@ -1946,7 +2079,7 @@ static int keyspan_usa49_send_setup(struct usb_serial *serial,
 		/* msg.setPrescaler = 0xff; */
 	}
 
-	msg.lcr = (p_priv->cflag & CSTOPB) ? STOPBITS_678_2 : STOPBITS_5678_1;
+	msg.lcr = (p_priv->cflag & CSTOPB)? STOPBITS_678_2: STOPBITS_5678_1;
 	switch (p_priv->cflag & CSIZE) {
 	case CS5:
 		msg.lcr |= USA_DATABITS_5;
@@ -1963,7 +2096,7 @@ static int keyspan_usa49_send_setup(struct usb_serial *serial,
 	}
 	if (p_priv->cflag & PARENB) {
 		/* note USA_PARITY_NONE == 0 */
-		msg.lcr |= (p_priv->cflag & PARODD) ?
+		msg.lcr |= (p_priv->cflag & PARODD)?
 			USA_PARITY_ODD : USA_PARITY_EVEN;
 	}
 	msg.setLcr = 0xff;
@@ -2081,6 +2214,8 @@ static int keyspan_usa90_send_setup(struct usb_serial *serial,
 	int 					err;
 	u8						prescaler;
 
+	dbg("%s", __func__);
+
 	s_priv = usb_get_serial_data(serial);
 	p_priv = usb_get_serial_port_data(port);
 	d_details = s_priv->device_details;
@@ -2130,7 +2265,7 @@ static int keyspan_usa90_send_setup(struct usb_serial *serial,
 		msg.txMode = TXMODE_BYHAND;
 	}
 
-	msg.lcr = (p_priv->cflag & CSTOPB) ? STOPBITS_678_2 : STOPBITS_5678_1;
+	msg.lcr = (p_priv->cflag & CSTOPB)? STOPBITS_678_2: STOPBITS_5678_1;
 	switch (p_priv->cflag & CSIZE) {
 	case CS5:
 		msg.lcr |= USA_DATABITS_5;
@@ -2147,7 +2282,7 @@ static int keyspan_usa90_send_setup(struct usb_serial *serial,
 	}
 	if (p_priv->cflag & PARENB) {
 		/* note USA_PARITY_NONE == 0 */
-		msg.lcr |= (p_priv->cflag & PARODD) ?
+		msg.lcr |= (p_priv->cflag & PARODD)?
 			USA_PARITY_ODD : USA_PARITY_EVEN;
 	}
 	if (p_priv->old_cflag != p_priv->cflag) {
@@ -2210,6 +2345,8 @@ static int keyspan_usa67_send_setup(struct usb_serial *serial,
 	const struct keyspan_device_details	*d_details;
 	struct urb				*this_urb;
 	int 					err, device_port;
+
+	dbg("%s", __func__);
 
 	s_priv = usb_get_serial_data(serial);
 	p_priv = usb_get_serial_port_data(port);
@@ -2274,7 +2411,7 @@ static int keyspan_usa67_send_setup(struct usb_serial *serial,
 	}
 	if (p_priv->cflag & PARENB) {
 		/* note USA_PARITY_NONE == 0 */
-		msg.lcr |= (p_priv->cflag & PARODD) ?
+		msg.lcr |= (p_priv->cflag & PARODD)?
 					USA_PARITY_ODD : USA_PARITY_EVEN;
 	}
 	msg.setLcr = 0xff;
@@ -2351,6 +2488,8 @@ static void keyspan_send_setup(struct usb_serial_port *port, int reset_port)
 	struct keyspan_serial_private *s_priv;
 	const struct keyspan_device_details *d_details;
 
+	dbg("%s", __func__);
+
 	s_priv = usb_get_serial_data(serial);
 	d_details = s_priv->device_details;
 
@@ -2379,8 +2518,12 @@ static void keyspan_send_setup(struct usb_serial_port *port, int reset_port)
 static int keyspan_startup(struct usb_serial *serial)
 {
 	int				i, err;
+	struct usb_serial_port		*port;
 	struct keyspan_serial_private 	*s_priv;
+	struct keyspan_port_private	*p_priv;
 	const struct keyspan_device_details	*d_details;
+
+	dbg("%s", __func__);
 
 	for (i = 0; (d_details = keyspan_devices[i]) != NULL; ++i)
 		if (d_details->product_id ==
@@ -2403,6 +2546,19 @@ static int keyspan_startup(struct usb_serial *serial)
 	s_priv->device_details = d_details;
 	usb_set_serial_data(serial, s_priv);
 
+	/* Now setup per port private data */
+	for (i = 0; i < serial->num_ports; i++) {
+		port = serial->port[i];
+		p_priv = kzalloc(sizeof(struct keyspan_port_private),
+								GFP_KERNEL);
+		if (!p_priv) {
+			dbg("%s - kmalloc for keyspan_port_private (%d) failed!.", __func__, i);
+			return 1;
+		}
+		p_priv->device_details = d_details;
+		usb_set_serial_port_data(port, p_priv);
+	}
+
 	keyspan_setup_urbs(serial);
 
 	if (s_priv->instat_urb != NULL) {
@@ -2423,112 +2579,65 @@ static int keyspan_startup(struct usb_serial *serial)
 
 static void keyspan_disconnect(struct usb_serial *serial)
 {
-	struct keyspan_serial_private *s_priv;
+	int				i, j;
+	struct usb_serial_port		*port;
+	struct keyspan_serial_private 	*s_priv;
+	struct keyspan_port_private	*p_priv;
+
+	dbg("%s", __func__);
 
 	s_priv = usb_get_serial_data(serial);
 
+	/* Stop reading/writing urbs */
 	stop_urb(s_priv->instat_urb);
 	stop_urb(s_priv->glocont_urb);
 	stop_urb(s_priv->indat_urb);
+	for (i = 0; i < serial->num_ports; ++i) {
+		port = serial->port[i];
+		p_priv = usb_get_serial_port_data(port);
+		stop_urb(p_priv->inack_urb);
+		stop_urb(p_priv->outcont_urb);
+		for (j = 0; j < 2; j++) {
+			stop_urb(p_priv->in_urbs[j]);
+			stop_urb(p_priv->out_urbs[j]);
+		}
+	}
+
+	/* Now free them */
+	usb_free_urb(s_priv->instat_urb);
+	usb_free_urb(s_priv->indat_urb);
+	usb_free_urb(s_priv->glocont_urb);
+	for (i = 0; i < serial->num_ports; ++i) {
+		port = serial->port[i];
+		p_priv = usb_get_serial_port_data(port);
+		usb_free_urb(p_priv->inack_urb);
+		usb_free_urb(p_priv->outcont_urb);
+		for (j = 0; j < 2; j++) {
+			usb_free_urb(p_priv->in_urbs[j]);
+			usb_free_urb(p_priv->out_urbs[j]);
+		}
+	}
 }
 
 static void keyspan_release(struct usb_serial *serial)
 {
-	struct keyspan_serial_private *s_priv;
+	int				i;
+	struct usb_serial_port		*port;
+	struct keyspan_serial_private 	*s_priv;
+
+	dbg("%s", __func__);
 
 	s_priv = usb_get_serial_data(serial);
 
-	usb_free_urb(s_priv->instat_urb);
-	usb_free_urb(s_priv->indat_urb);
-	usb_free_urb(s_priv->glocont_urb);
-
+	/*  dbg("Freeing serial->private."); */
 	kfree(s_priv);
-}
 
-static int keyspan_port_probe(struct usb_serial_port *port)
-{
-	struct usb_serial *serial = port->serial;
-	struct keyspan_port_private *s_priv;
-	struct keyspan_port_private *p_priv;
-	const struct keyspan_device_details *d_details;
-	struct callbacks *cback;
-	int endp;
-	int port_num;
-	int i;
-
-	s_priv = usb_get_serial_data(serial);
-	d_details = s_priv->device_details;
-
-	p_priv = kzalloc(sizeof(*p_priv), GFP_KERNEL);
-	if (!p_priv)
-		return -ENOMEM;
-
-	s_priv = usb_get_serial_data(port->serial);
-	p_priv->device_details = d_details;
-
-	/* Setup values for the various callback routines */
-	cback = &keyspan_callbacks[d_details->msg_format];
-
-	port_num = port->number - port->serial->minor;
-
-	/* Do indat endpoints first, once for each flip */
-	endp = d_details->indat_endpoints[port_num];
-	for (i = 0; i <= d_details->indat_endp_flip; ++i, ++endp) {
-		p_priv->in_urbs[i] = keyspan_setup_urb(serial, endp,
-						USB_DIR_IN, port,
-						p_priv->in_buffer[i], 64,
-						cback->indat_callback);
+	/*  dbg("Freeing port->private."); */
+	/* Now free per port private data */
+	for (i = 0; i < serial->num_ports; i++) {
+		port = serial->port[i];
+		kfree(usb_get_serial_port_data(port));
 	}
-	/* outdat endpoints also have flip */
-	endp = d_details->outdat_endpoints[port_num];
-	for (i = 0; i <= d_details->outdat_endp_flip; ++i, ++endp) {
-		p_priv->out_urbs[i] = keyspan_setup_urb(serial, endp,
-						USB_DIR_OUT, port,
-						p_priv->out_buffer[i], 64,
-						cback->outdat_callback);
-	}
-	/* inack endpoint */
-	p_priv->inack_urb = keyspan_setup_urb(serial,
-					d_details->inack_endpoints[port_num],
-					USB_DIR_IN, port,
-					p_priv->inack_buffer, 1,
-					cback->inack_callback);
-	/* outcont endpoint */
-	p_priv->outcont_urb = keyspan_setup_urb(serial,
-					d_details->outcont_endpoints[port_num],
-					USB_DIR_OUT, port,
-					p_priv->outcont_buffer, 64,
-					 cback->outcont_callback);
-
-	usb_set_serial_port_data(port, p_priv);
-
-	return 0;
-}
-
-static int keyspan_port_remove(struct usb_serial_port *port)
-{
-	struct keyspan_port_private *p_priv;
-	int i;
-
-	p_priv = usb_get_serial_port_data(port);
-
-	stop_urb(p_priv->inack_urb);
-	stop_urb(p_priv->outcont_urb);
-	for (i = 0; i < 2; i++) {
-		stop_urb(p_priv->in_urbs[i]);
-		stop_urb(p_priv->out_urbs[i]);
-	}
-
-	usb_free_urb(p_priv->inack_urb);
-	usb_free_urb(p_priv->outcont_urb);
-	for (i = 0; i < 2; i++) {
-		usb_free_urb(p_priv->in_urbs[i]);
-		usb_free_urb(p_priv->out_urbs[i]);
-	}
-
-	kfree(p_priv);
-
-	return 0;
 }
 
 MODULE_AUTHOR(DRIVER_AUTHOR);

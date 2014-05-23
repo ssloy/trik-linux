@@ -47,7 +47,6 @@
 
 static void musb_port_suspend(struct musb *musb, bool do_suspend)
 {
-	struct usb_otg	*otg = musb->xceiv->otg;
 	u8		power;
 	void __iomem	*mbase = musb->mregs;
 
@@ -82,14 +81,14 @@ static void musb_port_suspend(struct musb *musb, bool do_suspend)
 		case OTG_STATE_A_HOST:
 			musb->xceiv->state = OTG_STATE_A_SUSPEND;
 			musb->is_active = is_otg_enabled(musb)
-					&& otg->host->b_hnp_enable;
+					&& musb->xceiv->host->b_hnp_enable;
 			musb_platform_try_idle(musb, 0);
 			break;
 		case OTG_STATE_B_HOST:
 			if (is_otg_enabled(musb)) {
 				musb->xceiv->state = OTG_STATE_B_WAIT_ACON;
 				musb->is_active = is_otg_enabled(musb)
-					&& otg->host->b_hnp_enable;
+					&& musb->xceiv->host->b_hnp_enable;
 				musb_platform_try_idle(musb, 0);
 			}
 			break;

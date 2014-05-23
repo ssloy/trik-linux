@@ -474,24 +474,19 @@ static int dump_header_stats(struct musb *musb, char *buffer)
 	code = sprintf(buffer,
 			"Options: "
 #ifdef CONFIG_MUSB_PIO_ONLY
-			"pio-only, "
+			"pio"
+#elif defined(CONFIG_USB_TI_CPPI_DMA)
+			"cppi-dma"
+#elif defined(CONFIG_USB_INVENTRA_DMA)
+			"musb-dma"
+#elif defined(CONFIG_USB_TUSB_OMAP_DMA)
+			"tusb-omap-dma"
+#else
+			"?dma?"
 #endif
-#ifdef CONFIG_USB_TI_CPPI_DMA
-			"cppi-dma, "
-#endif
-#ifdef CONFIG_USB_TI_CPPI41_DMA
-			"cppi41-dma, "
-#endif
-#ifdef CONFIG_USB_INVENTRA_DMA
-			"musb-dma, "
-#endif
-#ifdef CONFIG_USB_TUSB_OMAP_DMA
-			"tusb-omap-dma, "
-#endif
-#ifdef CONFIG_USB_UX500_DMA
-			"ux500-dma, "
-#endif
-			"[eps=%d]\n",
+			", "
+			"otg (peripheral+host)"
+			", [eps=%d]\n",
 		musb->nr_endpoints);
 	if (code <= 0)
 		goto done;
@@ -697,6 +692,23 @@ static int musb_proc_write(struct file *file, const char __user *buffer,
 		}
 		break;
 
+	case 'b':
+		/* generate software babble interrupt */
+		musb_simulate_babble_intr(musb);
+		break;
+
+	case 'K':
+		/* enable babble workaround */
+		musb->enable_babble_work = 1;
+		INFO("enabled babble workaround\n");
+		break;
+
+	case 'k':
+		/* disable babble workaround */
+		musb->enable_babble_work = 0;
+		INFO("disabled babble workaround\n");
+		break;
+
 	case '?':
 		INFO("?: you are seeing it\n");
 		INFO("S: suspend the usb bus\n");
@@ -705,6 +717,9 @@ static int musb_proc_write(struct file *file, const char __user *buffer,
 		INFO("F: force session start\n");
 		INFO("H: host mode\n");
 		INFO("T: start sending TEST_PACKET\n");
+		INFO("D: set/read dbug level\n");
+		INFO("K/k: enable/disable babble workaround\n");
+		INFO("b: generate software babble interrupt\n");
 		break;
 
 	default:

@@ -33,10 +33,14 @@ static int cns3xxx_ehci_init(struct usb_hcd *hcd)
 	}
 
 	ehci->caps = hcd->regs;
+	ehci->regs = hcd->regs
+		+ HC_LENGTH(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
+	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
 	hcd->has_tt = 0;
+	ehci_reset(ehci);
 
-	retval = ehci_setup(hcd);
+	retval = ehci_init(hcd);
 	if (retval)
 		return retval;
 

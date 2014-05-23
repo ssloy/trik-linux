@@ -272,7 +272,6 @@ static struct usb_driver cypress_driver = {
 	.post_reset =	usb_stor_post_reset,
 	.id_table =	cypress_usb_ids,
 	.soft_unbind =	1,
-	.no_dynamic_id = 1,
 };
 
 module_usb_driver(cypress_driver);

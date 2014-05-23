@@ -51,8 +51,7 @@ static bool debug;
  * Function prototypes
  */
 static int  mct_u232_startup(struct usb_serial *serial);
-static int  mct_u232_port_probe(struct usb_serial_port *port);
-static int  mct_u232_port_remove(struct usb_serial_port *remove);
+static void mct_u232_release(struct usb_serial *serial);
 static int  mct_u232_open(struct tty_struct *tty, struct usb_serial_port *port);
 static void mct_u232_close(struct usb_serial_port *port);
 static void mct_u232_dtr_rts(struct usb_serial_port *port, int on);
@@ -74,14 +73,23 @@ static void mct_u232_unthrottle(struct tty_struct *tty);
 /*
  * All of the device info needed for the MCT USB-RS232 converter.
  */
-static const struct usb_device_id id_table[] = {
+static const struct usb_device_id id_table_combined[] = {
 	{ USB_DEVICE(MCT_U232_VID, MCT_U232_PID) },
 	{ USB_DEVICE(MCT_U232_VID, MCT_U232_SITECOM_PID) },
 	{ USB_DEVICE(MCT_U232_VID, MCT_U232_DU_H3SP_PID) },
 	{ USB_DEVICE(MCT_U232_BELKIN_F5U109_VID, MCT_U232_BELKIN_F5U109_PID) },
 	{ }		/* Terminating entry */
 };
-MODULE_DEVICE_TABLE(usb, id_table);
+
+MODULE_DEVICE_TABLE(usb, id_table_combined);
+
+static struct usb_driver mct_u232_driver = {
+	.name =		"mct_u232",
+	.probe =	usb_serial_probe,
+	.disconnect =	usb_serial_disconnect,
+	.id_table =	id_table_combined,
+	.no_dynamic_id = 	1,
+};
 
 static struct usb_serial_driver mct_u232_device = {
 	.driver = {
@@ -89,7 +97,8 @@ static struct usb_serial_driver mct_u232_device = {
 		.name =		"mct_u232",
 	},
 	.description =	     "MCT U232",
-	.id_table =	     id_table,
+	.usb_driver = 	     &mct_u232_driver,
+	.id_table =	     id_table_combined,
 	.num_ports =	     1,
 	.open =		     mct_u232_open,
 	.close =	     mct_u232_close,
@@ -102,14 +111,9 @@ static struct usb_serial_driver mct_u232_device = {
 	.tiocmget =	     mct_u232_tiocmget,
 	.tiocmset =	     mct_u232_tiocmset,
 	.attach =	     mct_u232_startup,
-	.port_probe =        mct_u232_port_probe,
-	.port_remove =       mct_u232_port_remove,
+	.release =	     mct_u232_release,
 	.ioctl =             mct_u232_ioctl,
 	.get_icount =        mct_u232_get_icount,
-};
-
-static struct usb_serial_driver * const serial_drivers[] = {
-	&mct_u232_device, NULL
 };
 
 struct mct_u232_private {
@@ -311,16 +315,13 @@ static int mct_u232_set_modem_ctrl(struct usb_serial *serial,
 			MCT_U232_SET_REQUEST_TYPE,
 			0, 0, buf, MCT_U232_SET_MODEM_CTRL_SIZE,
 			WDR_TIMEOUT);
-	kfree(buf);
-
-	dbg("set_modem_ctrl: state=0x%x ==> mcr=0x%x", control_state, mcr);
-
-	if (rc < 0) {
+	if (rc < 0)
 		dev_err(&serial->dev->dev,
 			"Set MODEM CTRL 0x%x failed (error = %d)\n", mcr, rc);
-		return rc;
-	}
-	return 0;
+	dbg("set_modem_ctrl: state=0x%x ==> mcr=0x%x", control_state, mcr);
+
+	kfree(buf);
+	return rc;
 } /* mct_u232_set_modem_ctrl */
 
 static int mct_u232_get_modem_stat(struct usb_serial *serial,
@@ -394,7 +395,17 @@ static void mct_u232_msr_to_state(unsigned int *control_state,
 
 static int mct_u232_startup(struct usb_serial *serial)
 {
+	struct mct_u232_private *priv;
 	struct usb_serial_port *port, *rport;
+
+	priv = kzalloc(sizeof(struct mct_u232_private), GFP_KERNEL);
+	if (!priv)
+		return -ENOMEM;
+	spin_lock_init(&priv->lock);
+	init_waitqueue_head(&priv->msr_wait);
+	usb_set_serial_port_data(serial->port[0], priv);
+
+	init_waitqueue_head(&serial->port[0]->write_wait);
 
 	/* Puh, that's dirty */
 	port = serial->port[0];
@@ -408,31 +419,20 @@ static int mct_u232_startup(struct usb_serial *serial)
 	return 0;
 } /* mct_u232_startup */
 
-static int mct_u232_port_probe(struct usb_serial_port *port)
+
+static void mct_u232_release(struct usb_serial *serial)
 {
 	struct mct_u232_private *priv;
+	int i;
 
-	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
-	if (!priv)
-		return -ENOMEM;
+	dbg("%s", __func__);
 
-	spin_lock_init(&priv->lock);
-	init_waitqueue_head(&priv->msr_wait);
-
-	usb_set_serial_port_data(port, priv);
-
-	return 0;
-}
-
-static int mct_u232_port_remove(struct usb_serial_port *port)
-{
-	struct mct_u232_private *priv;
-
-	priv = usb_get_serial_port_data(port);
-	kfree(priv);
-
-	return 0;
-}
+	for (i = 0; i < serial->num_ports; ++i) {
+		/* My special items, the standard routines free my urbs */
+		priv = usb_get_serial_port_data(serial->port[i]);
+		kfree(priv);
+	}
+} /* mct_u232_release */
 
 static int  mct_u232_open(struct tty_struct *tty, struct usb_serial_port *port)
 {
@@ -443,6 +443,8 @@ static int  mct_u232_open(struct tty_struct *tty, struct usb_serial_port *port)
 	unsigned long flags;
 	unsigned char last_lcr;
 	unsigned char last_msr;
+
+	dbg("%s port %d", __func__, port->number);
 
 	/* Compensate for a hardware bug: although the Sitecom U232-P25
 	 * device reports a maximum output packet size of 32 bytes,
@@ -524,14 +526,14 @@ static void mct_u232_dtr_rts(struct usb_serial_port *port, int on)
 
 static void mct_u232_close(struct usb_serial_port *port)
 {
-	/*
-	 * Must kill the read urb as it is actually an interrupt urb, which
-	 * generic close thus fails to kill.
-	 */
-	usb_kill_urb(port->read_urb);
-	usb_kill_urb(port->interrupt_in_urb);
+	dbg("%s port %d", __func__, port->number);
 
-	usb_serial_generic_close(port);
+	if (port->serial->dev) {
+		/* shutdown our urbs */
+		usb_kill_urb(port->write_urb);
+		usb_kill_urb(port->read_urb);
+		usb_kill_urb(port->interrupt_in_urb);
+	}
 } /* mct_u232_close */
 
 
@@ -568,6 +570,7 @@ static void mct_u232_read_int_callback(struct urb *urb)
 		return;
 	}
 
+	dbg("%s - port %d", __func__, port->number);
 	usb_serial_debug_data(debug, &port->dev, __func__,
 					urb->actual_length, data);
 
@@ -728,6 +731,8 @@ static void mct_u232_break_ctl(struct tty_struct *tty, int break_state)
 	unsigned char lcr;
 	unsigned long flags;
 
+	dbg("%sstate=%d", __func__, break_state);
+
 	spin_lock_irqsave(&priv->lock, flags);
 	lcr = priv->last_lcr;
 
@@ -746,6 +751,8 @@ static int mct_u232_tiocmget(struct tty_struct *tty)
 	unsigned int control_state;
 	unsigned long flags;
 
+	dbg("%s", __func__);
+
 	spin_lock_irqsave(&priv->lock, flags);
 	control_state = priv->control_state;
 	spin_unlock_irqrestore(&priv->lock, flags);
@@ -761,6 +768,8 @@ static int mct_u232_tiocmset(struct tty_struct *tty,
 	struct mct_u232_private *priv = usb_get_serial_port_data(port);
 	unsigned int control_state;
 	unsigned long flags;
+
+	dbg("%s", __func__);
 
 	spin_lock_irqsave(&priv->lock, flags);
 	control_state = priv->control_state;
@@ -785,6 +794,8 @@ static void mct_u232_throttle(struct tty_struct *tty)
 	struct mct_u232_private *priv = usb_get_serial_port_data(port);
 	unsigned int control_state;
 
+	dbg("%s - port %d", __func__, port->number);
+
 	spin_lock_irq(&priv->lock);
 	priv->rx_flags |= THROTTLED;
 	if (C_CRTSCTS(tty)) {
@@ -802,6 +813,8 @@ static void mct_u232_unthrottle(struct tty_struct *tty)
 	struct usb_serial_port *port = tty->driver_data;
 	struct mct_u232_private *priv = usb_get_serial_port_data(port);
 	unsigned int control_state;
+
+	dbg("%s - port %d", __func__, port->number);
 
 	spin_lock_irq(&priv->lock);
 	if ((priv->rx_flags & THROTTLED) && C_CRTSCTS(tty)) {
@@ -891,7 +904,33 @@ static int  mct_u232_get_icount(struct tty_struct *tty,
 	return 0;
 }
 
-module_usb_serial_driver(serial_drivers, id_table);
+static int __init mct_u232_init(void)
+{
+	int retval;
+	retval = usb_serial_register(&mct_u232_device);
+	if (retval)
+		goto failed_usb_serial_register;
+	retval = usb_register(&mct_u232_driver);
+	if (retval)
+		goto failed_usb_register;
+	printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_VERSION ":"
+	       DRIVER_DESC "\n");
+	return 0;
+failed_usb_register:
+	usb_serial_deregister(&mct_u232_device);
+failed_usb_serial_register:
+	return retval;
+}
+
+
+static void __exit mct_u232_exit(void)
+{
+	usb_deregister(&mct_u232_driver);
+	usb_serial_deregister(&mct_u232_device);
+}
+
+module_init(mct_u232_init);
+module_exit(mct_u232_exit);
 
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);

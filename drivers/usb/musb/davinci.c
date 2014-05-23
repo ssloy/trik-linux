@@ -28,14 +28,12 @@
 #include <linux/list.h>
 #include <linux/delay.h>
 #include <linux/clk.h>
-#include <linux/err.h>
 #include <linux/io.h>
 #include <linux/gpio.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
 
 #include <mach/cputype.h>
-#include <mach/hardware.h>
 
 #include <asm/mach-types.h>
 
@@ -267,7 +265,6 @@ static irqreturn_t davinci_musb_interrupt(int irq, void *__hci)
 	unsigned long	flags;
 	irqreturn_t	retval = IRQ_NONE;
 	struct musb	*musb = __hci;
-	struct usb_otg	*otg = musb->xceiv->otg;
 	void __iomem	*tibase = musb->ctrl_base;
 	struct cppi	*cppi;
 	u32		tmp;
@@ -334,14 +331,14 @@ static irqreturn_t davinci_musb_interrupt(int irq, void *__hci)
 			WARNING("VBUS error workaround (delay coming)\n");
 		} else if (is_host_enabled(musb) && drvvbus) {
 			MUSB_HST_MODE(musb);
-			otg->default_a = 1;
+			musb->xceiv->default_a = 1;
 			musb->xceiv->state = OTG_STATE_A_WAIT_VRISE;
 			portstate(musb->port1_status |= USB_PORT_STAT_POWER);
 			del_timer(&otg_workaround);
 		} else {
 			musb->is_active = 0;
 			MUSB_DEV_MODE(musb);
-			otg->default_a = 0;
+			musb->xceiv->default_a = 0;
 			musb->xceiv->state = OTG_STATE_B_IDLE;
 			portstate(musb->port1_status &= ~USB_PORT_STAT_POWER);
 		}
@@ -385,10 +382,10 @@ static int davinci_musb_init(struct musb *musb)
 	void __iomem	*tibase = musb->ctrl_base;
 	u32		revision;
 
-	usb_nop_xceiv_register();
-	musb->xceiv = devm_usb_get_phy(musb->controller, USB_PHY_TYPE_USB2);
-	if (IS_ERR_OR_NULL(musb->xceiv))
-		goto unregister;
+	usb_nop_xceiv_register(musb->id);
+	musb->xceiv = otg_get_transceiver(musb->id);
+	if (!musb->xceiv)
+		return -ENODEV;
 
 	musb->mregs += DAVINCI_BASE_OFFSET;
 
@@ -445,8 +442,8 @@ static int davinci_musb_init(struct musb *musb)
 	return 0;
 
 fail:
-unregister:
-	usb_nop_xceiv_unregister();
+	otg_put_transceiver(musb->xceiv);
+	usb_nop_xceiv_unregister(musb->id);
 	return -ENODEV;
 }
 
@@ -467,7 +464,7 @@ static int davinci_musb_exit(struct musb *musb)
 	davinci_musb_source_power(musb, 0 /*off*/, 1);
 
 	/* delay, to avoid problems with module reload */
-	if (is_host_enabled(musb) && musb->xceiv->otg->default_a) {
+	if (is_host_enabled(musb) && musb->xceiv->default_a) {
 		int	maxdelay = 30;
 		u8	devctl, warn = 0;
 
@@ -494,7 +491,8 @@ static int davinci_musb_exit(struct musb *musb)
 
 	phy_off();
 
-	usb_nop_xceiv_unregister();
+	otg_put_transceiver(musb->xceiv);
+	usb_nop_xceiv_unregister(musb->id);
 
 	return 0;
 }
@@ -502,19 +500,18 @@ static int davinci_musb_exit(struct musb *musb)
 static const struct musb_platform_ops davinci_ops = {
 	.fifo_mode	= 2,
 	.flags		= MUSB_GLUE_EP_ADDR_FLAT_MAPPING | MUSB_GLUE_DMA_CPPI,
-
 	.init		= davinci_musb_init,
 	.exit		= davinci_musb_exit,
 
 	.enable		= davinci_musb_enable,
 	.disable	= davinci_musb_disable,
 
-	.read_fifo	= musb_read_fifo,
-	.write_fifo	= musb_write_fifo,
-
 	.set_mode	= davinci_musb_set_mode,
 
 	.set_vbus	= davinci_musb_set_vbus,
+
+	.read_fifo	= musb_read_fifo,
+	.write_fifo	= musb_write_fifo,
 
 	.dma_controller_create = cppi_dma_controller_create,
 	.dma_controller_destroy = cppi_dma_controller_destroy,
@@ -522,7 +519,7 @@ static const struct musb_platform_ops davinci_ops = {
 
 static u64 davinci_dmamask = DMA_BIT_MASK(32);
 
-static int __devinit davinci_probe(struct platform_device *pdev)
+static int __init davinci_probe(struct platform_device *pdev)
 {
 	struct musb_hdrc_platform_data	*pdata = pdev->dev.platform_data;
 	struct platform_device		*musb;
@@ -605,11 +602,12 @@ err0:
 	return ret;
 }
 
-static int __devexit davinci_remove(struct platform_device *pdev)
+static int __exit davinci_remove(struct platform_device *pdev)
 {
 	struct davinci_glue		*glue = platform_get_drvdata(pdev);
 
-	platform_device_unregister(glue->musb);
+	platform_device_del(glue->musb);
+	platform_device_put(glue->musb);
 	clk_disable(glue->clk);
 	clk_put(glue->clk);
 	kfree(glue);
@@ -618,8 +616,7 @@ static int __devexit davinci_remove(struct platform_device *pdev)
 }
 
 static struct platform_driver davinci_driver = {
-	.probe		= davinci_probe,
-	.remove		= __devexit_p(davinci_remove),
+	.remove		= __exit_p(davinci_remove),
 	.driver		= {
 		.name	= "musb-davinci",
 	},
@@ -631,9 +628,9 @@ MODULE_LICENSE("GPL v2");
 
 static int __init davinci_init(void)
 {
-	return platform_driver_register(&davinci_driver);
+	return platform_driver_probe(&davinci_driver, davinci_probe);
 }
-module_init(davinci_init);
+subsys_initcall(davinci_init);
 
 static void __exit davinci_exit(void)
 {

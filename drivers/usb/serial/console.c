@@ -113,8 +113,7 @@ static int usb_console_setup(struct console *co, char *options)
 	serial = usb_serial_get_by_index(co->index);
 	if (serial == NULL) {
 		/* no device is connected yet, sorry :( */
-		printk(KERN_ERR "No USB device connected to ttyUSB%i\n",
-		       co->index);
+		err("No USB device connected to ttyUSB%i", co->index);
 		return -ENODEV;
 	}
 
@@ -138,7 +137,7 @@ static int usb_console_setup(struct console *co, char *options)
 			tty = kzalloc(sizeof(*tty), GFP_KERNEL);
 			if (!tty) {
 				retval = -ENOMEM;
-				dev_err(&port->dev, "no more memory\n");
+				err("no more memory");
 				goto reset_open_count;
 			}
 			kref_init(&tty->kref);
@@ -147,7 +146,7 @@ static int usb_console_setup(struct console *co, char *options)
 			tty->index = co->index;
 			if (tty_init_termios(tty)) {
 				retval = -ENOMEM;
-				dev_err(&port->dev, "no more memory\n");
+				err("no more memory");
 				goto free_tty;
 			}
 		}
@@ -160,7 +159,7 @@ static int usb_console_setup(struct console *co, char *options)
 			retval = usb_serial_generic_open(NULL, port);
 
 		if (retval) {
-			dev_err(&port->dev, "could not open USB console port\n");
+			err("could not open USB console port");
 			goto fail;
 		}
 

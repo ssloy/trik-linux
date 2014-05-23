@@ -301,7 +301,7 @@ pn_rx_submit(struct f_phonet *fp, struct usb_request *req, gfp_t gfp_flags)
 	struct page *page;
 	int err;
 
-	page = __skb_alloc_page(gfp_flags | __GFP_NOMEMALLOC, NULL);
+	page = alloc_page(gfp_flags);
 	if (!page)
 		return -ENOMEM;
 
@@ -345,7 +345,7 @@ static void pn_rx_complete(struct usb_ep *ep, struct usb_request *req)
 		}
 
 		skb_add_rx_frag(skb, skb_shinfo(skb)->nr_frags, page,
-				skb->len <= 1, req->actual, PAGE_SIZE);
+				skb->len <= 1, req->actual);
 		page = NULL;
 
 		if (req->actual < req->length) { /* Last fragment */

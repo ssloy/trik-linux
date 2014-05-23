@@ -1,5 +1,5 @@
 /*
- * u_uac1.c -- ALSA audio utilities for Gadget stack
+ * u_audio.c -- ALSA audio utilities for Gadget stack
  *
  * Copyright (C) 2008 Bryan Wu <cooloney@kernel.org>
  * Copyright (C) 2008 Analog Devices, Inc
@@ -17,7 +17,7 @@
 #include <linux/random.h>
 #include <linux/syscalls.h>
 
-#include "u_uac1.h"
+#include "u_audio.h"
 
 /*
  * This component encapsulates the ALSA devices for USB audio gadget
@@ -275,17 +275,17 @@ static int gaudio_close_snd_dev(struct gaudio *gau)
 	/* Close control device */
 	snd = &gau->control;
 	if (snd->filp)
-		filp_close(snd->filp, NULL);
+		filp_close(snd->filp, current->files);
 
 	/* Close PCM playback device and setup substream */
 	snd = &gau->playback;
 	if (snd->filp)
-		filp_close(snd->filp, NULL);
+		filp_close(snd->filp, current->files);
 
 	/* Close PCM capture device and setup substream */
 	snd = &gau->capture;
 	if (snd->filp)
-		filp_close(snd->filp, NULL);
+		filp_close(snd->filp, current->files);
 
 	return 0;
 }

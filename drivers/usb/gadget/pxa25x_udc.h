@@ -41,6 +41,7 @@ struct pxa25x_ep {
 	struct usb_ep				ep;
 	struct pxa25x_udc			*dev;
 
+	const struct usb_endpoint_descriptor	*desc;
 	struct list_head			queue;
 	unsigned long				pio_irqs;
 
@@ -118,7 +119,7 @@ struct pxa25x_udc {
 	struct device				*dev;
 	struct clk				*clk;
 	struct pxa2xx_udc_mach_info		*mach;
-	struct usb_phy				*transceiver;
+	struct otg_transceiver			*transceiver;
 	u64					dma_mask;
 	struct pxa25x_ep			ep [PXA_UDC_NUM_ENDPOINTS];
 

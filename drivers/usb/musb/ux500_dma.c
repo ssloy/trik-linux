@@ -115,12 +115,12 @@ static bool ux500_configure_channel(struct dma_channel *channel,
 	slave_conf.dst_addr = usb_fifo_addr;
 	slave_conf.dst_addr_width = addr_width;
 	slave_conf.dst_maxburst = 16;
-	slave_conf.device_fc = false;
 
 	dma_chan->device->device_control(dma_chan, DMA_SLAVE_CONFIG,
 					     (unsigned long) &slave_conf);
 
-	dma_desc = dmaengine_prep_slave_sg(dma_chan, &sg, 1, direction,
+	dma_desc = dma_chan->device->
+			device_prep_slave_sg(dma_chan, &sg, 1, direction,
 					     DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 	if (!dma_desc)
 		return false;
@@ -356,17 +356,16 @@ static int ux500_dma_controller_start(struct dma_controller *c)
 	return 0;
 }
 
-void ux500_dma_controller_destroy(struct dma_controller *c)
+void dma_controller_destroy(struct dma_controller *c)
 {
 	struct ux500_dma_controller *controller = container_of(c,
 			struct ux500_dma_controller, controller);
 
 	kfree(controller);
 }
-EXPORT_SYMBOL(ux500_dma_controller_destroy);
 
-struct dma_controller *__devinit
-ux500_dma_controller_create(struct musb *musb, void __iomem *base)
+struct dma_controller *__init
+dma_controller_create(struct musb *musb, void __iomem *base)
 {
 	struct ux500_dma_controller *controller;
 	struct platform_device *pdev = to_platform_device(musb->controller);
@@ -392,4 +391,3 @@ ux500_dma_controller_create(struct musb *musb, void __iomem *base)
 
 	return &controller->controller;
 }
-EXPORT_SYMBOL(ux500_dma_controller_create);

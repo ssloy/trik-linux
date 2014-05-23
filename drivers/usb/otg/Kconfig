@@ -23,7 +23,7 @@ config USB_GPIO_VBUS
 	select USB_OTG_UTILS
 	help
 	  Provides simple GPIO VBUS sensing for controllers with an
-	  internal transceiver via the usb_phy interface, and
+	  internal transceiver via the otg_transceiver interface, and
 	  optionally control of a D+ pullup GPIO as well as a VBUS
 	  current limit regulator.
 
@@ -115,16 +115,6 @@ config FSL_USB2_OTG
 	select USB_OTG_UTILS
 	help
 	  Enable this to support Freescale USB OTG transceiver.
-
-config USB_MXS_PHY
-	tristate "Freescale MXS USB PHY support"
-	depends on ARCH_MXC || ARCH_MXS
-	select STMP_DEVICE
-	select USB_OTG_UTILS
-	help
-	  Enable this to support the Freescale MXS USB PHY.
-
-	  MXS Phy is used by some of the i.MX SoCs, for example imx23/28/6x.
 
 config USB_MV_OTG
 	tristate "Marvell USB OTG support"

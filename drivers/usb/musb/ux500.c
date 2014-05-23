@@ -23,7 +23,6 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/clk.h>
-#include <linux/err.h>
 #include <linux/io.h>
 #include <linux/platform_device.h>
 
@@ -38,8 +37,8 @@ struct ux500_glue {
 
 static int ux500_musb_init(struct musb *musb)
 {
-	musb->xceiv = devm_usb_get_phy(musb->controller, USB_PHY_TYPE_USB2);
-	if (IS_ERR_OR_NULL(musb->xceiv)) {
+	musb->xceiv = otg_get_transceiver();
+	if (!musb->xceiv) {
 		pr_err("HS USB OTG: no transceiver configured\n");
 		return -ENODEV;
 	}
@@ -49,20 +48,18 @@ static int ux500_musb_init(struct musb *musb)
 
 static int ux500_musb_exit(struct musb *musb)
 {
+	otg_put_transceiver(musb->xceiv);
+
 	return 0;
 }
 
 static const struct musb_platform_ops ux500_ops = {
 	.fifo_mode	= 5,
-
 	.init		= ux500_musb_init,
 	.exit		= ux500_musb_exit,
-
-	.dma_controller_create = ux500_dma_controller_create,
-	.dma_controller_destroy = ux500_dma_controller_destroy,
 };
 
-static int __devinit ux500_probe(struct platform_device *pdev)
+static int __init ux500_probe(struct platform_device *pdev)
 {
 	struct musb_hdrc_platform_data	*pdata = pdev->dev.platform_data;
 	struct platform_device		*musb;
@@ -145,11 +142,12 @@ err0:
 	return ret;
 }
 
-static int __devexit ux500_remove(struct platform_device *pdev)
+static int __exit ux500_remove(struct platform_device *pdev)
 {
 	struct ux500_glue	*glue = platform_get_drvdata(pdev);
 
-	platform_device_unregister(glue->musb);
+	platform_device_del(glue->musb);
+	platform_device_put(glue->musb);
 	clk_disable(glue->clk);
 	clk_put(glue->clk);
 	kfree(glue);
@@ -163,7 +161,7 @@ static int ux500_suspend(struct device *dev)
 	struct ux500_glue	*glue = dev_get_drvdata(dev);
 	struct musb		*musb = glue_to_musb(glue);
 
-	usb_phy_set_suspend(musb->xceiv, 1);
+	otg_set_suspend(musb->xceiv, 1);
 	clk_disable(glue->clk);
 
 	return 0;
@@ -181,7 +179,7 @@ static int ux500_resume(struct device *dev)
 		return ret;
 	}
 
-	usb_phy_set_suspend(musb->xceiv, 0);
+	otg_set_suspend(musb->xceiv, 0);
 
 	return 0;
 }
@@ -197,8 +195,7 @@ static const struct dev_pm_ops ux500_pm_ops = {
 #endif
 
 static struct platform_driver ux500_driver = {
-	.probe		= ux500_probe,
-	.remove		= __devexit_p(ux500_remove),
+	.remove		= __exit_p(ux500_remove),
 	.driver		= {
 		.name	= "musb-ux500",
 		.pm	= DEV_PM_OPS,
@@ -211,9 +208,9 @@ MODULE_LICENSE("GPL v2");
 
 static int __init ux500_init(void)
 {
-	return platform_driver_register(&ux500_driver);
+	return platform_driver_probe(&ux500_driver, ux500_probe);
 }
-module_init(ux500_init);
+subsys_initcall(ux500_init);
 
 static void __exit ux500_exit(void)
 {

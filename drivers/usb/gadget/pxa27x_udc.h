@@ -447,7 +447,7 @@ struct pxa_udc {
 	struct usb_gadget_driver		*driver;
 	struct device				*dev;
 	struct pxa2xx_udc_mach_info		*mach;
-	struct usb_phy				*transceiver;
+	struct otg_transceiver			*transceiver;
 
 	enum ep0_state				ep0state;
 	struct udc_stats			stats;

@@ -43,7 +43,10 @@ void usb_wwan_dtr_rts(struct usb_serial_port *port, int on)
 {
 	struct usb_serial *serial = port->serial;
 	struct usb_wwan_port_private *portdata;
+
 	struct usb_wwan_intf_private *intfdata;
+
+	dbg("%s", __func__);
 
 	intfdata = port->serial->private;
 
@@ -65,6 +68,8 @@ void usb_wwan_set_termios(struct tty_struct *tty,
 			  struct ktermios *old_termios)
 {
 	struct usb_wwan_intf_private *intfdata = port->serial->private;
+
+	dbg("%s", __func__);
 
 	/* Doesn't support option setting */
 	tty_termios_copy_hw(tty->termios, old_termios);
@@ -281,6 +286,8 @@ static void usb_wwan_indat_callback(struct urb *urb)
 	unsigned char *data = urb->transfer_buffer;
 	int status = urb->status;
 
+	dbg("%s: %p", __func__, urb);
+
 	endpoint = usb_pipeendpoint(urb->pipe);
 	port = urb->context;
 
@@ -300,17 +307,20 @@ static void usb_wwan_indat_callback(struct urb *urb)
 		}
 
 		/* Resubmit urb so we continue receiving */
-		err = usb_submit_urb(urb, GFP_ATOMIC);
-		if (err) {
-			if (err != -EPERM) {
-				printk(KERN_ERR "%s: resubmit read urb failed. "
-					"(%d)", __func__, err);
-				/* busy also in error unless we are killed */
+		if (status != -ESHUTDOWN) {
+			err = usb_submit_urb(urb, GFP_ATOMIC);
+			if (err) {
+				if (err != -EPERM) {
+					printk(KERN_ERR "%s: resubmit read urb failed. "
+						"(%d)", __func__, err);
+					/* busy also in error unless we are killed */
+					usb_mark_last_busy(port->serial->dev);
+				}
+			} else {
 				usb_mark_last_busy(port->serial->dev);
 			}
-		} else {
-			usb_mark_last_busy(port->serial->dev);
 		}
+
 	}
 }
 
@@ -320,6 +330,8 @@ static void usb_wwan_outdat_callback(struct urb *urb)
 	struct usb_wwan_port_private *portdata;
 	struct usb_wwan_intf_private *intfdata;
 	int i;
+
+	dbg("%s", __func__);
 
 	port = urb->context;
 	intfdata = port->serial->private;
@@ -394,6 +406,8 @@ int usb_wwan_open(struct tty_struct *tty, struct usb_serial_port *port)
 	portdata = usb_get_serial_port_data(port);
 	intfdata = serial->private;
 
+	dbg("%s", __func__);
+
 	/* Start reading from the IN endpoint */
 	for (i = 0; i < N_IN_URB; i++) {
 		urb = portdata->in_urbs[i];
@@ -427,6 +441,7 @@ void usb_wwan_close(struct usb_serial_port *port)
 	struct usb_wwan_port_private *portdata;
 	struct usb_wwan_intf_private *intfdata = port->serial->private;
 
+	dbg("%s", __func__);
 	portdata = usb_get_serial_port_data(port);
 
 	if (serial->dev) {
@@ -447,12 +462,10 @@ void usb_wwan_close(struct usb_serial_port *port)
 EXPORT_SYMBOL(usb_wwan_close);
 
 /* Helper functions used by usb_wwan_setup_urbs */
-static struct urb *usb_wwan_setup_urb(struct usb_serial_port *port,
-				      int endpoint,
+static struct urb *usb_wwan_setup_urb(struct usb_serial *serial, int endpoint,
 				      int dir, void *ctx, char *buf, int len,
 				      void (*callback) (struct urb *))
 {
-	struct usb_serial *serial = port->serial;
 	struct urb *urb;
 
 	if (endpoint == -1)
@@ -472,102 +485,105 @@ static struct urb *usb_wwan_setup_urb(struct usb_serial_port *port,
 	return urb;
 }
 
-int usb_wwan_port_probe(struct usb_serial_port *port)
+/* Setup urbs */
+static void usb_wwan_setup_urbs(struct usb_serial *serial)
 {
+	int i, j;
+	struct usb_serial_port *port;
 	struct usb_wwan_port_private *portdata;
-	struct urb *urb;
-	u8 *buffer;
-	int err;
-	int i;
 
-	portdata = kzalloc(sizeof(*portdata), GFP_KERNEL);
-	if (!portdata)
-		return -ENOMEM;
+	dbg("%s", __func__);
 
-	init_usb_anchor(&portdata->delayed);
+	for (i = 0; i < serial->num_ports; i++) {
+		port = serial->port[i];
+		portdata = usb_get_serial_port_data(port);
 
-	for (i = 0; i < N_IN_URB; i++) {
-		buffer = (u8 *)__get_free_page(GFP_KERNEL);
-		if (!buffer)
-			goto bail_out_error;
-		portdata->in_buffer[i] = buffer;
+		/* Do indat endpoints first */
+		for (j = 0; j < N_IN_URB; ++j) {
+			portdata->in_urbs[j] = usb_wwan_setup_urb(serial,
+								  port->
+								  bulk_in_endpointAddress,
+								  USB_DIR_IN,
+								  port,
+								  portdata->
+								  in_buffer[j],
+								  IN_BUFLEN,
+								  usb_wwan_indat_callback);
+		}
 
-		urb = usb_wwan_setup_urb(port, port->bulk_in_endpointAddress,
-						USB_DIR_IN, port,
-						buffer, IN_BUFLEN,
-						usb_wwan_indat_callback);
-		portdata->in_urbs[i] = urb;
- 	}
-	for (i = 0; i < N_OUT_URB; i++) {
-		if (port->bulk_out_endpointAddress == -1)
-			continue;
-
-		buffer = kmalloc(OUT_BUFLEN, GFP_KERNEL);
-		if (!buffer)
-			goto bail_out_error2;
-		portdata->out_buffer[i] = buffer;
-
-		urb = usb_wwan_setup_urb(port, port->bulk_out_endpointAddress,
-						USB_DIR_OUT, port,
-						buffer, OUT_BUFLEN,
-						usb_wwan_outdat_callback);
-		portdata->out_urbs[i] = urb;
+		/* outdat endpoints */
+		for (j = 0; j < N_OUT_URB; ++j) {
+			portdata->out_urbs[j] = usb_wwan_setup_urb(serial,
+								   port->
+								   bulk_out_endpointAddress,
+								   USB_DIR_OUT,
+								   port,
+								   portdata->
+								   out_buffer
+								   [j],
+								   OUT_BUFLEN,
+								   usb_wwan_outdat_callback);
+		}
 	}
+}
 
-	usb_set_serial_port_data(port, portdata);
+int usb_wwan_startup(struct usb_serial *serial)
+{
+	int i, j, err;
+	struct usb_serial_port *port;
+	struct usb_wwan_port_private *portdata;
+	u8 *buffer;
 
-	if (port->interrupt_in_urb) {
+	dbg("%s", __func__);
+
+	/* Now setup per port private data */
+	for (i = 0; i < serial->num_ports; i++) {
+		port = serial->port[i];
+		portdata = kzalloc(sizeof(*portdata), GFP_KERNEL);
+		if (!portdata) {
+			dbg("%s: kmalloc for usb_wwan_port_private (%d) failed!.",
+			    __func__, i);
+			return 1;
+		}
+		init_usb_anchor(&portdata->delayed);
+
+		for (j = 0; j < N_IN_URB; j++) {
+			buffer = (u8 *) __get_free_page(GFP_KERNEL);
+			if (!buffer)
+				goto bail_out_error;
+			portdata->in_buffer[j] = buffer;
+		}
+
+		for (j = 0; j < N_OUT_URB; j++) {
+			buffer = kmalloc(OUT_BUFLEN, GFP_KERNEL);
+			if (!buffer)
+				goto bail_out_error2;
+			portdata->out_buffer[j] = buffer;
+		}
+
+		usb_set_serial_port_data(port, portdata);
+
+		if (!port->interrupt_in_urb)
+			continue;
 		err = usb_submit_urb(port->interrupt_in_urb, GFP_KERNEL);
 		if (err)
-			dev_dbg(&port->dev, "%s: submit irq_in urb failed %d\n",
-				__func__, err);
+			dbg("%s: submit irq_in urb failed %d", __func__, err);
 	}
-
+	usb_wwan_setup_urbs(serial);
 	return 0;
 
 bail_out_error2:
-	for (i = 0; i < N_OUT_URB; i++) {
-		usb_free_urb(portdata->out_urbs[i]);
-		kfree(portdata->out_buffer[i]);
-	}
+	for (j = 0; j < N_OUT_URB; j++)
+		kfree(portdata->out_buffer[j]);
 bail_out_error:
-	for (i = 0; i < N_IN_URB; i++) {
-		usb_free_urb(portdata->in_urbs[i]);
-		free_page((unsigned long)portdata->in_buffer[i]);
-	}
+	for (j = 0; j < N_IN_URB; j++)
+		if (portdata->in_buffer[j])
+			free_page((unsigned long)portdata->in_buffer[j]);
 	kfree(portdata);
-
-	return -ENOMEM;
+	return 1;
 }
-EXPORT_SYMBOL_GPL(usb_wwan_port_probe);
+EXPORT_SYMBOL(usb_wwan_startup);
 
-int usb_wwan_port_remove(struct usb_serial_port *port)
-{
-	int i;
-	struct usb_wwan_port_private *portdata;
-
-	portdata = usb_get_serial_port_data(port);
-	usb_set_serial_port_data(port, NULL);
-
-	/* Stop reading/writing urbs and free them */
-	for (i = 0; i < N_IN_URB; i++) {
-		usb_kill_urb(portdata->in_urbs[i]);
-		usb_free_urb(portdata->in_urbs[i]);
-		free_page((unsigned long)portdata->in_buffer[i]);
-	}
-	for (i = 0; i < N_OUT_URB; i++) {
-		usb_kill_urb(portdata->out_urbs[i]);
-		usb_free_urb(portdata->out_urbs[i]);
-		kfree(portdata->out_buffer[i]);
-	}
-
-	/* Now free port private data */
-	kfree(portdata);
-	return 0;
-}
-EXPORT_SYMBOL(usb_wwan_port_remove);
-
-#ifdef CONFIG_PM
 static void stop_read_write_urbs(struct usb_serial *serial)
 {
 	int i, j;
@@ -578,8 +594,6 @@ static void stop_read_write_urbs(struct usb_serial *serial)
 	for (i = 0; i < serial->num_ports; ++i) {
 		port = serial->port[i];
 		portdata = usb_get_serial_port_data(port);
-		if (!portdata)
-			continue;
 		for (j = 0; j < N_IN_URB; j++)
 			usb_kill_urb(portdata->in_urbs[j]);
 		for (j = 0; j < N_OUT_URB; j++)
@@ -587,10 +601,55 @@ static void stop_read_write_urbs(struct usb_serial *serial)
 	}
 }
 
+void usb_wwan_disconnect(struct usb_serial *serial)
+{
+	dbg("%s", __func__);
+
+	stop_read_write_urbs(serial);
+}
+EXPORT_SYMBOL(usb_wwan_disconnect);
+
+void usb_wwan_release(struct usb_serial *serial)
+{
+	int i, j;
+	struct usb_serial_port *port;
+	struct usb_wwan_port_private *portdata;
+
+	dbg("%s", __func__);
+
+	/* Now free them */
+	for (i = 0; i < serial->num_ports; ++i) {
+		port = serial->port[i];
+		portdata = usb_get_serial_port_data(port);
+
+		for (j = 0; j < N_IN_URB; j++) {
+			usb_free_urb(portdata->in_urbs[j]);
+			free_page((unsigned long)
+				  portdata->in_buffer[j]);
+			portdata->in_urbs[j] = NULL;
+		}
+		for (j = 0; j < N_OUT_URB; j++) {
+			usb_free_urb(portdata->out_urbs[j]);
+			kfree(portdata->out_buffer[j]);
+			portdata->out_urbs[j] = NULL;
+		}
+	}
+
+	/* Now free per port private data */
+	for (i = 0; i < serial->num_ports; i++) {
+		port = serial->port[i];
+		kfree(usb_get_serial_port_data(port));
+	}
+}
+EXPORT_SYMBOL(usb_wwan_release);
+
+#ifdef CONFIG_PM
 int usb_wwan_suspend(struct usb_serial *serial, pm_message_t message)
 {
 	struct usb_wwan_intf_private *intfdata = serial->private;
 	int b;
+
+	dbg("%s entered", __func__);
 
 	if (PMSG_IS_AUTO(message)) {
 		spin_lock_irq(&intfdata->susp_lock);
@@ -655,6 +714,7 @@ int usb_wwan_resume(struct usb_serial *serial)
 	struct urb *urb;
 	int err = 0;
 
+	dbg("%s entered", __func__);
 	/* get the interrupt URBs resubmitted unconditionally */
 	for (i = 0; i < serial->num_ports; i++) {
 		port = serial->port[i];
@@ -665,8 +725,8 @@ int usb_wwan_resume(struct usb_serial *serial)
 		err = usb_submit_urb(port->interrupt_in_urb, GFP_NOIO);
 		dbg("Submitted interrupt URB for port %d (result %d)", i, err);
 		if (err < 0) {
-			dev_err(&port->dev, "%s: Error %d for interrupt URB\n",
-				__func__, err);
+			err("%s: Error %d for interrupt URB of port%d",
+			    __func__, err, i);
 			goto err_out;
 		}
 	}
@@ -678,7 +738,7 @@ int usb_wwan_resume(struct usb_serial *serial)
 
 		/* skip closed ports */
 		spin_lock_irq(&intfdata->susp_lock);
-		if (!portdata || !portdata->opened) {
+		if (!portdata->opened) {
 			spin_unlock_irq(&intfdata->susp_lock);
 			continue;
 		}
@@ -687,8 +747,8 @@ int usb_wwan_resume(struct usb_serial *serial)
 			urb = portdata->in_urbs[j];
 			err = usb_submit_urb(urb, GFP_ATOMIC);
 			if (err < 0) {
-				dev_err(&port->dev, "%s: Error %d for bulk URB %d\n",
-					__func__, err, i);
+				err("%s: Error %d for bulk URB %d",
+				    __func__, err, i);
 				spin_unlock_irq(&intfdata->susp_lock);
 				goto err_out;
 			}

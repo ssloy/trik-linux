@@ -1043,8 +1043,6 @@ ep0_read (struct file *fd, char __user *buf, size_t len, loff_t *ptr)
 // FIXME don't call this with the spinlock held ...
 				if (copy_to_user (buf, dev->req->buf, len))
 					retval = -EFAULT;
-				else
-					retval = len;
 				clean_req (dev->gadget->ep0, dev->req);
 				/* NOTE userspace can't yet choose to stall */
 			}
@@ -1571,17 +1569,20 @@ delegate:
 
 static void destroy_ep_files (struct dev_data *dev)
 {
+	struct list_head	*entry, *tmp;
+
 	DBG (dev, "%s %d\n", __func__, dev->state);
 
 	/* dev->state must prevent interference */
+restart:
 	spin_lock_irq (&dev->lock);
-	while (!list_empty(&dev->epfiles)) {
+	list_for_each_safe (entry, tmp, &dev->epfiles) {
 		struct ep_data	*ep;
 		struct inode	*parent;
 		struct dentry	*dentry;
 
 		/* break link to FS */
-		ep = list_first_entry (&dev->epfiles, struct ep_data, epfiles);
+		ep = list_entry (entry, struct ep_data, epfiles);
 		list_del_init (&ep->epfiles);
 		dentry = ep->dentry;
 		ep->dentry = NULL;
@@ -1604,7 +1605,8 @@ static void destroy_ep_files (struct dev_data *dev)
 		dput (dentry);
 		mutex_unlock (&parent->i_mutex);
 
-		spin_lock_irq (&dev->lock);
+		/* fds may still be open */
+		goto restart;
 	}
 	spin_unlock_irq (&dev->lock);
 }
@@ -2057,8 +2059,10 @@ gadgetfs_fill_super (struct super_block *sb, void *opts, int silent)
 	if (!inode)
 		goto Enomem;
 	inode->i_op = &simple_dir_inode_operations;
-	if (!(sb->s_root = d_make_root (inode)))
+	if (!(sb->s_root = d_alloc_root (inode))) {
+		iput(inode);
 		goto Enomem;
+	}
 
 	/* the ep0 file is named after the controller we expect;
 	 * user mode code can use it for sanity checks, like we do.

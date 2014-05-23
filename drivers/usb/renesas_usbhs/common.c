@@ -19,7 +19,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
 #include <linux/sysfs.h>
-#include "common.h"
+#include "./common.h"
 
 /*
  *		image of renesas_usbhs
@@ -413,7 +413,8 @@ static int usbhs_probe(struct platform_device *pdev)
 	struct renesas_usbhs_platform_info *info = pdev->dev.platform_data;
 	struct renesas_usbhs_driver_callback *dfunc;
 	struct usbhs_priv *priv;
-	struct resource *res, *irq_res;
+	struct resource *res;
+	unsigned int irq;
 	int ret;
 
 	/* check platform information */
@@ -425,8 +426,8 @@ static int usbhs_probe(struct platform_device *pdev)
 
 	/* platform data */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	irq_res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (!res || !irq_res) {
+	irq = platform_get_irq(pdev, 0);
+	if (!res || (int)irq <= 0) {
 		dev_err(&pdev->dev, "Not enough Renesas USB platform resources.\n");
 		return -ENODEV;
 	}
@@ -475,9 +476,7 @@ static int usbhs_probe(struct platform_device *pdev)
 	/*
 	 * priv settings
 	 */
-	priv->irq	= irq_res->start;
-	if (irq_res->flags & IORESOURCE_IRQ_SHAREABLE)
-		priv->irqflags = IRQF_SHARED;
+	priv->irq	= irq;
 	priv->pdev	= pdev;
 	INIT_DELAYED_WORK(&priv->notify_hotplug_work, usbhsc_notify_hotplug);
 	spin_lock_init(usbhs_priv_to_lock(priv));
@@ -603,12 +602,12 @@ static int usbhsc_resume(struct device *dev)
 	struct usbhs_priv *priv = dev_get_drvdata(dev);
 	struct platform_device *pdev = usbhs_priv_to_pdev(priv);
 
+	usbhs_platform_call(priv, phy_reset, pdev);
+
 	if (!usbhsc_flags_has(priv, USBHSF_RUNTIME_PWCTRL))
 		usbhsc_power_ctrl(priv, 1);
 
-	usbhs_platform_call(priv, phy_reset, pdev);
-
-	usbhsc_drvcllbck_notify_hotplug(pdev);
+	usbhsc_hotplug(priv);
 
 	return 0;
 }

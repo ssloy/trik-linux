@@ -62,10 +62,10 @@ struct musb_hw_ep;
 
 #define	DMA_ADDR_INVALID	(~(dma_addr_t)0)
 
-#ifdef CONFIG_MUSB_PIO_ONLY
-#define	is_dma_capable()	(0)
-#else
+#ifndef CONFIG_MUSB_PIO_ONLY
 #define	is_dma_capable()	(1)
+#else
+#define	is_dma_capable()	(0)
 #endif
 
 #ifdef CONFIG_USB_UX500_DMA
@@ -94,9 +94,9 @@ struct musb_hw_ep;
 #endif
 
 #ifdef CONFIG_USB_TUSB_OMAP_DMA
-#define tusb_dma_omap(musb)	(musb->ops->flags & MUSB_GLUE_DMA_TUSB)
+#define tusb_dma_omap(musb)		(musb->ops->flags & MUSB_GLUE_DMA_TUSB)
 #else
-#define tusb_dma_omap(musb)	0
+#define tusb_dma_omap(musb)		0
 #endif
 
 /* Anomaly 05000456 - USB Receive Interrupt Is Not Generated in DMA Mode 1
@@ -196,6 +196,7 @@ struct dma_controller {
 /* called after channel_program(), may indicate a fault */
 extern void musb_dma_completion(struct musb *musb, u8 epnum, u8 transmit);
 
+
 #ifdef CONFIG_USB_TI_CPPI_DMA
 extern struct dma_controller *__devinit
 cppi_dma_controller_create(struct musb *, void __iomem *);
@@ -243,23 +244,6 @@ inventra_dma_controller_create(struct musb *musb, void __iomem *mregs)
 }
 
 static inline void inventra_dma_controller_destroy(struct dma_controller *c)
-{
-}
-#endif
-
-#ifdef CONFIG_USB_UX500_DMA
-extern struct dma_controller *__devinit
-ux500_dma_controller_create(struct musb *, void __iomem *);
-
-extern void ux500_dma_controller_destroy(struct dma_controller *);
-#else
-static inline struct dma_controller *__devinit
-ux500_dma_controller_create(struct musb *musb, void __iomem *mregs)
-{
-	return NULL;
-}
-
-static inline void ux500_dma_controller_destroy(struct dma_controller *c)
 {
 }
 #endif

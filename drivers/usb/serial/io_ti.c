@@ -197,6 +197,15 @@ static const struct usb_device_id id_table_combined[] = {
 
 MODULE_DEVICE_TABLE(usb, id_table_combined);
 
+static struct usb_driver io_driver = {
+	.name =		"io_ti",
+	.probe =	usb_serial_probe,
+	.disconnect =	usb_serial_disconnect,
+	.id_table =	id_table_combined,
+	.no_dynamic_id = 	1,
+};
+
+
 static unsigned char OperationalMajorVersion;
 static unsigned char OperationalMinorVersion;
 static unsigned short OperationalBuildNumber;
@@ -539,7 +548,6 @@ static void chase_port(struct edgeport_port *port, unsigned long timeout,
 {
 	int baud_rate;
 	struct tty_struct *tty = tty_port_tty_get(&port->port->port);
-	struct usb_serial *serial = port->port->serial;
 	wait_queue_t wait;
 	unsigned long flags;
 
@@ -554,7 +562,7 @@ static void chase_port(struct edgeport_port *port, unsigned long timeout,
 		set_current_state(TASK_INTERRUPTIBLE);
 		if (kfifo_len(&port->write_fifo) == 0
 		|| timeout == 0 || signal_pending(current)
-		|| serial->disconnected)
+		|| !usb_get_intfdata(port->port->serial->interface))
 			/* disconnect */
 			break;
 		spin_unlock_irqrestore(&port->ep_lock, flags);
@@ -571,7 +579,7 @@ static void chase_port(struct edgeport_port *port, unsigned long timeout,
 	/* wait for data to drain from the device */
 	timeout += jiffies;
 	while ((long)(jiffies - timeout) < 0 && !signal_pending(current)
-						&& !serial->disconnected) {
+	&& usb_get_intfdata(port->port->serial->interface)) {
 		/* not disconnected */
 		if (!tx_active(port))
 			break;
@@ -579,7 +587,7 @@ static void chase_port(struct edgeport_port *port, unsigned long timeout,
 	}
 
 	/* disconnected */
-	if (serial->disconnected)
+	if (!usb_get_intfdata(port->port->serial->interface))
 		return;
 
 	/* wait one more character time, based on baud rate */
@@ -1809,7 +1817,7 @@ static void edge_bulk_out_callback(struct urb *urb)
 		    __func__, status);
 		return;
 	default:
-		dev_err_console(port, "%s - nonzero write bulk status "
+		dev_err(&urb->dev->dev, "%s - nonzero write bulk status "
 			"received: %d\n", __func__, status);
 	}
 
@@ -1996,8 +2004,8 @@ static void edge_close(struct usb_serial_port *port)
 {
 	struct edgeport_serial *edge_serial;
 	struct edgeport_port *edge_port;
-	struct usb_serial *serial = port->serial;
 	int port_number;
+	int status;
 
 	dbg("%s - port %d", __func__, port->number);
 
@@ -2021,18 +2029,12 @@ static void edge_close(struct usb_serial_port *port)
 	 * send a close port command to it */
 	dbg("%s - send umpc_close_port", __func__);
 	port_number = port->number - port->serial->minor;
-
-	mutex_lock(&serial->disc_mutex);
-	if (!serial->disconnected) {
-		send_cmd(serial->dev,
+	status = send_cmd(port->serial->dev,
 				     UMPC_CLOSE_PORT,
 				     (__u8)(UMPM_UART1_PORT + port_number),
 				     0,
 				     NULL,
 				     0);
-	}
-	mutex_unlock(&serial->disc_mutex);
-
 	mutex_lock(&edge_serial->es_lock);
 	--edge_port->edge_serial->num_ports_open;
 	if (edge_port->edge_serial->num_ports_open <= 0) {
@@ -2109,7 +2111,7 @@ static void edge_send(struct tty_struct *tty)
 	/* send the data out the bulk port */
 	result = usb_submit_urb(port->write_urb, GFP_ATOMIC);
 	if (result) {
-		dev_err_console(port,
+		dev_err(&port->dev,
 			"%s - failed submitting write urb, error %d\n",
 				__func__, result);
 		edge_port->ep_write_urb_in_use = 0;
@@ -2594,7 +2596,12 @@ static void edge_break(struct tty_struct *tty, int break_state)
 static int edge_startup(struct usb_serial *serial)
 {
 	struct edgeport_serial *edge_serial;
+	struct edgeport_port *edge_port;
+	struct usb_device *dev;
 	int status;
+	int i;
+
+	dev = serial->dev;
 
 	/* create our private serial structure */
 	edge_serial = kzalloc(sizeof(struct edgeport_serial), GFP_KERNEL);
@@ -2612,7 +2619,40 @@ static int edge_startup(struct usb_serial *serial)
 		return status;
 	}
 
+	/* set up our port private structures */
+	for (i = 0; i < serial->num_ports; ++i) {
+		edge_port = kzalloc(sizeof(struct edgeport_port), GFP_KERNEL);
+		if (edge_port == NULL) {
+			dev_err(&serial->dev->dev, "%s - Out of memory\n",
+								__func__);
+			goto cleanup;
+		}
+		spin_lock_init(&edge_port->ep_lock);
+		if (kfifo_alloc(&edge_port->write_fifo, EDGE_OUT_BUF_SIZE,
+								GFP_KERNEL)) {
+			dev_err(&serial->dev->dev, "%s - Out of memory\n",
+								__func__);
+			kfree(edge_port);
+			goto cleanup;
+		}
+		edge_port->port = serial->port[i];
+		edge_port->edge_serial = edge_serial;
+		usb_set_serial_port_data(serial->port[i], edge_port);
+		edge_port->bUartMode = default_uart_mode;
+	}
+
 	return 0;
+
+cleanup:
+	for (--i; i >= 0; --i) {
+		edge_port = usb_get_serial_port_data(serial->port[i]);
+		kfifo_free(&edge_port->write_fifo);
+		kfree(edge_port);
+		usb_set_serial_port_data(serial->port[i], NULL);
+	}
+	kfree(edge_serial);
+	usb_set_serial_data(serial, NULL);
+	return -ENOMEM;
 }
 
 static void edge_disconnect(struct usb_serial *serial)
@@ -2622,54 +2662,19 @@ static void edge_disconnect(struct usb_serial *serial)
 
 static void edge_release(struct usb_serial *serial)
 {
+	int i;
+	struct edgeport_port *edge_port;
+
+	dbg("%s", __func__);
+
+	for (i = 0; i < serial->num_ports; ++i) {
+		edge_port = usb_get_serial_port_data(serial->port[i]);
+		kfifo_free(&edge_port->write_fifo);
+		kfree(edge_port);
+	}
 	kfree(usb_get_serial_data(serial));
 }
 
-static int edge_port_probe(struct usb_serial_port *port)
-{
-	struct edgeport_port *edge_port;
-	int ret;
-
-	edge_port = kzalloc(sizeof(*edge_port), GFP_KERNEL);
-	if (!edge_port)
-		return -ENOMEM;
-
-	ret = kfifo_alloc(&edge_port->write_fifo, EDGE_OUT_BUF_SIZE,
-								GFP_KERNEL);
-	if (ret) {
-		kfree(edge_port);
-		return -ENOMEM;
-	}
-
-	spin_lock_init(&edge_port->ep_lock);
-	edge_port->port = port;
-	edge_port->edge_serial = usb_get_serial_data(port->serial);
-	edge_port->bUartMode = default_uart_mode;
-
-	usb_set_serial_port_data(port, edge_port);
-
-	ret = edge_create_sysfs_attrs(port);
-	if (ret) {
-		kfifo_free(&edge_port->write_fifo);
-		kfree(edge_port);
-		return ret;
-	}
-
-	return 0;
-}
-
-static int edge_port_remove(struct usb_serial_port *port)
-{
-	struct edgeport_port *edge_port;
-
-	edge_port = usb_get_serial_port_data(port);
-
-	edge_remove_sysfs_attrs(port);
-	kfifo_free(&edge_port->write_fifo);
-	kfree(edge_port);
-
-	return 0;
-}
 
 /* Sysfs Attributes */
 
@@ -2720,6 +2725,7 @@ static struct usb_serial_driver edgeport_1port_device = {
 		.name		= "edgeport_ti_1",
 	},
 	.description		= "Edgeport TI 1 port adapter",
+	.usb_driver		= &io_driver,
 	.id_table		= edgeport_1port_id_table,
 	.num_ports		= 1,
 	.open			= edge_open,
@@ -2729,8 +2735,8 @@ static struct usb_serial_driver edgeport_1port_device = {
 	.attach			= edge_startup,
 	.disconnect		= edge_disconnect,
 	.release		= edge_release,
-	.port_probe		= edge_port_probe,
-	.port_remove		= edge_port_remove,
+	.port_probe		= edge_create_sysfs_attrs,
+	.port_remove		= edge_remove_sysfs_attrs,
 	.ioctl			= edge_ioctl,
 	.set_termios		= edge_set_termios,
 	.tiocmget		= edge_tiocmget,
@@ -2751,6 +2757,7 @@ static struct usb_serial_driver edgeport_2port_device = {
 		.name		= "edgeport_ti_2",
 	},
 	.description		= "Edgeport TI 2 port adapter",
+	.usb_driver		= &io_driver,
 	.id_table		= edgeport_2port_id_table,
 	.num_ports		= 2,
 	.open			= edge_open,
@@ -2760,8 +2767,8 @@ static struct usb_serial_driver edgeport_2port_device = {
 	.attach			= edge_startup,
 	.disconnect		= edge_disconnect,
 	.release		= edge_release,
-	.port_probe		= edge_port_probe,
-	.port_remove		= edge_port_remove,
+	.port_probe		= edge_create_sysfs_attrs,
+	.port_remove		= edge_remove_sysfs_attrs,
 	.ioctl			= edge_ioctl,
 	.set_termios		= edge_set_termios,
 	.tiocmget		= edge_tiocmget,
@@ -2775,12 +2782,41 @@ static struct usb_serial_driver edgeport_2port_device = {
 	.write_bulk_callback	= edge_bulk_out_callback,
 };
 
-static struct usb_serial_driver * const serial_drivers[] = {
-	&edgeport_1port_device, &edgeport_2port_device, NULL
-};
 
-module_usb_serial_driver(serial_drivers, id_table_combined);
+static int __init edgeport_init(void)
+{
+	int retval;
+	retval = usb_serial_register(&edgeport_1port_device);
+	if (retval)
+		goto failed_1port_device_register;
+	retval = usb_serial_register(&edgeport_2port_device);
+	if (retval)
+		goto failed_2port_device_register;
+	retval = usb_register(&io_driver);
+	if (retval)
+		goto failed_usb_register;
+	printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_VERSION ":"
+	       DRIVER_DESC "\n");
+	return 0;
+failed_usb_register:
+	usb_serial_deregister(&edgeport_2port_device);
+failed_2port_device_register:
+	usb_serial_deregister(&edgeport_1port_device);
+failed_1port_device_register:
+	return retval;
+}
 
+static void __exit edgeport_exit(void)
+{
+	usb_deregister(&io_driver);
+	usb_serial_deregister(&edgeport_1port_device);
+	usb_serial_deregister(&edgeport_2port_device);
+}
+
+module_init(edgeport_init);
+module_exit(edgeport_exit);
+
+/* Module information */
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");

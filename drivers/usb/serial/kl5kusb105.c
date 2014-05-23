@@ -62,8 +62,8 @@ static bool debug;
 /*
  * Function prototypes
  */
-static int klsi_105_port_probe(struct usb_serial_port *port);
-static int klsi_105_port_remove(struct usb_serial_port *port);
+static int  klsi_105_startup(struct usb_serial *serial);
+static void klsi_105_release(struct usb_serial *serial);
 static int  klsi_105_open(struct tty_struct *tty, struct usb_serial_port *port);
 static void klsi_105_close(struct usb_serial_port *port);
 static void klsi_105_set_termios(struct tty_struct *tty,
@@ -86,12 +86,21 @@ static const struct usb_device_id id_table[] = {
 
 MODULE_DEVICE_TABLE(usb, id_table);
 
+static struct usb_driver kl5kusb105d_driver = {
+	.name =		"kl5kusb105d",
+	.probe =	usb_serial_probe,
+	.disconnect =	usb_serial_disconnect,
+	.id_table =	id_table,
+	.no_dynamic_id =	1,
+};
+
 static struct usb_serial_driver kl5kusb105d_device = {
 	.driver = {
 		.owner =	THIS_MODULE,
 		.name =		"kl5kusb105d",
 	},
 	.description =		"KL5KUSB105D / PalmConnect",
+	.usb_driver =		&kl5kusb105d_driver,
 	.id_table =		id_table,
 	.num_ports =		1,
 	.bulk_out_size =	64,
@@ -101,16 +110,12 @@ static struct usb_serial_driver kl5kusb105d_device = {
 	/*.break_ctl =		klsi_105_break_ctl,*/
 	.tiocmget =		klsi_105_tiocmget,
 	.tiocmset =		klsi_105_tiocmset,
-	.port_probe =		klsi_105_port_probe,
-	.port_remove =		klsi_105_port_remove,
+	.attach =		klsi_105_startup,
+	.release =		klsi_105_release,
 	.throttle =		usb_serial_generic_throttle,
 	.unthrottle =		usb_serial_generic_unthrottle,
 	.process_read_urb =	klsi_105_process_read_urb,
 	.prepare_write_buffer =	klsi_105_prepare_write_buffer,
-};
-
-static struct usb_serial_driver * const serial_drivers[] = {
-	&kl5kusb105d_device, NULL
 };
 
 struct klsi_105_port_settings {
@@ -225,40 +230,60 @@ static int klsi_105_get_line_state(struct usb_serial_port *port,
  * Driver's tty interface functions
  */
 
-static int klsi_105_port_probe(struct usb_serial_port *port)
+static int klsi_105_startup(struct usb_serial *serial)
 {
 	struct klsi_105_private *priv;
+	int i;
 
-	priv = kmalloc(sizeof(*priv), GFP_KERNEL);
-	if (!priv)
-		return -ENOMEM;
+	/* check if we support the product id (see keyspan.c)
+	 * FIXME
+	 */
 
-	/* set initial values for control structures */
-	priv->cfg.pktlen    = 5;
-	priv->cfg.baudrate  = kl5kusb105a_sio_b9600;
-	priv->cfg.databits  = kl5kusb105a_dtb_8;
-	priv->cfg.unknown1  = 0;
-	priv->cfg.unknown2  = 1;
+	/* allocate the private data structure */
+	for (i = 0; i < serial->num_ports; i++) {
+		priv = kmalloc(sizeof(struct klsi_105_private),
+						   GFP_KERNEL);
+		if (!priv) {
+			dbg("%skmalloc for klsi_105_private failed.", __func__);
+			i--;
+			goto err_cleanup;
+		}
+		/* set initial values for control structures */
+		priv->cfg.pktlen    = 5;
+		priv->cfg.baudrate  = kl5kusb105a_sio_b9600;
+		priv->cfg.databits  = kl5kusb105a_dtb_8;
+		priv->cfg.unknown1  = 0;
+		priv->cfg.unknown2  = 1;
 
-	priv->line_state    = 0;
+		priv->line_state    = 0;
 
-	spin_lock_init(&priv->lock);
+		usb_set_serial_port_data(serial->port[i], priv);
 
-	/* priv->termios is left uninitialized until port opening */
+		spin_lock_init(&priv->lock);
 
-	usb_set_serial_port_data(port, priv);
+		/* priv->termios is left uninitialized until port opening */
+		init_waitqueue_head(&serial->port[i]->write_wait);
+	}
 
 	return 0;
+
+err_cleanup:
+	for (; i >= 0; i--) {
+		priv = usb_get_serial_port_data(serial->port[i]);
+		kfree(priv);
+		usb_set_serial_port_data(serial->port[i], NULL);
+	}
+	return -ENOMEM;
 }
 
-static int klsi_105_port_remove(struct usb_serial_port *port)
+static void klsi_105_release(struct usb_serial *serial)
 {
-	struct klsi_105_private *priv;
+	int i;
 
-	priv = usb_get_serial_port_data(port);
-	kfree(priv);
+	dbg("%s", __func__);
 
-	return 0;
+	for (i = 0; i < serial->num_ports; ++i)
+		kfree(usb_get_serial_port_data(serial->port[i]));
 }
 
 static int  klsi_105_open(struct tty_struct *tty, struct usb_serial_port *port)
@@ -270,6 +295,8 @@ static int  klsi_105_open(struct tty_struct *tty, struct usb_serial_port *port)
 	unsigned long line_state;
 	struct klsi_105_port_settings *cfg;
 	unsigned long flags;
+
+	dbg("%s port %d", __func__, port->number);
 
 	/* Do a defined restart:
 	 * Set up sane default baud rate and send the 'READ_ON'
@@ -346,6 +373,8 @@ exit:
 static void klsi_105_close(struct usb_serial_port *port)
 {
 	int rc;
+
+	dbg("%s port %d", __func__, port->number);
 
 	mutex_lock(&port->serial->disc_mutex);
 	if (!port->serial->disconnected) {
@@ -615,6 +644,7 @@ static int klsi_105_tiocmget(struct tty_struct *tty)
 	unsigned long flags;
 	int rc;
 	unsigned long line_state;
+	dbg("%s - request, just guessing", __func__);
 
 	rc = klsi_105_get_line_state(port, &line_state);
 	if (rc < 0) {
@@ -635,6 +665,8 @@ static int klsi_105_tiocmset(struct tty_struct *tty,
 			     unsigned int set, unsigned int clear)
 {
 	int retval = -EINVAL;
+
+	dbg("%s", __func__);
 
 /* if this ever gets implemented, it should be done something like this:
 	struct usb_serial *serial = port->serial;
@@ -658,11 +690,40 @@ static int klsi_105_tiocmset(struct tty_struct *tty,
 	return retval;
 }
 
-module_usb_serial_driver(serial_drivers, id_table);
+
+static int __init klsi_105_init(void)
+{
+	int retval;
+	retval = usb_serial_register(&kl5kusb105d_device);
+	if (retval)
+		goto failed_usb_serial_register;
+	retval = usb_register(&kl5kusb105d_driver);
+	if (retval)
+		goto failed_usb_register;
+
+	printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_VERSION ":"
+	       DRIVER_DESC "\n");
+	return 0;
+failed_usb_register:
+	usb_serial_deregister(&kl5kusb105d_device);
+failed_usb_serial_register:
+	return retval;
+}
+
+static void __exit klsi_105_exit(void)
+{
+	usb_deregister(&kl5kusb105d_driver);
+	usb_serial_deregister(&kl5kusb105d_device);
+}
+
+
+module_init(klsi_105_init);
+module_exit(klsi_105_exit);
 
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
+
 
 module_param(debug, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(debug, "enable extensive debugging messages");
