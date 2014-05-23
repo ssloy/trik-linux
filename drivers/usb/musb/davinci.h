@@ -15,6 +15,7 @@
  */
 
 /* Integrated highspeed/otg PHY */
+#define DAVINCI_SYSTEM_MODULE_BASE	0x01c40000
 #define USBPHY_CTL_PADDR	(DAVINCI_SYSTEM_MODULE_BASE + 0x34)
 #define USBPHY_DATAPOL		BIT(11)	/* (dm355) switch D+/D- */
 #define USBPHY_PHYCLKGD		BIT(8)
