@@ -515,7 +515,7 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 		u8 devctl = musb_readb(mregs, MUSB_DEVCTL);
 		int err;
 
-		WARNING("%s DRVVBUS, devctl %08x, drvvbus %08x, vbus state %d, state %s\n", __func__, status, devctl, drvvbus, (devctl>>3)&0x03, otg_state_string(musb->xceiv->state));
+		WARNING("%s DRVVBUS, status %08x, devctl %08x, drvvbus %08x, vbus state %d, state %s\n", __func__, status, devctl, drvvbus, (devctl>>3)&0x03, otg_state_string(musb->xceiv->state));
 		err = is_host_enabled(musb) && (musb->int_usb &
 						MUSB_INTR_VBUSERROR);
 		if (err) {
