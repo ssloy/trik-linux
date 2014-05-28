@@ -344,6 +344,8 @@ static void otg_timer(unsigned long _musb)
 	devctl = musb_readb(mregs, MUSB_DEVCTL);
 	dev_dbg(musb->controller, "Poll devctl %02x (%s)\n", devctl,
 		otg_state_string(musb->xceiv->state));
+	WARNING("%s poll devctl %02x (%s)\n", __func__, devctl,
+		otg_state_string(musb->xceiv->state));
 
 	spin_lock_irqsave(&musb->lock, flags);
 	switch (musb->xceiv->state) {
@@ -355,9 +357,11 @@ static void otg_timer(unsigned long _musb)
 		if (devctl & MUSB_DEVCTL_BDEVICE) {
 			musb->xceiv->state = OTG_STATE_B_IDLE;
 			MUSB_DEV_MODE(musb);
+			WARNING("%s go from A_WAIT_BCON to B_IDLE\n", __func__);
 		} else {
 			musb->xceiv->state = OTG_STATE_A_IDLE;
 			MUSB_HST_MODE(musb);
+			WARNING("%s go from A_WAIT_BCON to A_IDLE\n", __func__);
 		}
 		break;
 	case OTG_STATE_A_WAIT_VFALL:
@@ -368,16 +372,21 @@ static void otg_timer(unsigned long _musb)
 		 * VBUSERR got reported during enumeration" cases.
 		 */
 		if (devctl & MUSB_DEVCTL_VBUS) {
+			WARNING("%s at A_WAIT_VFALL, workaround VBUS\n", __func__);
 			mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
 			break;
 		}
 		musb->xceiv->state = OTG_STATE_A_WAIT_VRISE;
+		WARNING("%s go from A_WAIT_VFALL to A_WAIT_VRISE\n", __func__);
 		musb_writel(musb->ctrl_base, DA8XX_USB_INTR_SRC_SET_REG,
 			    MUSB_INTR_VBUSERROR << DA8XX_INTR_USB_SHIFT);
 		break;
 	case OTG_STATE_B_IDLE:
 		if (!is_peripheral_enabled(musb))
+		{
+			WARNING("%s at B_IDLE, peripheral disabled\n", __func__);
 			break;
+		}
 
 		/*
 		 * There's no ID-changed IRQ, so we have no good way to tell
@@ -393,12 +402,16 @@ static void otg_timer(unsigned long _musb)
 		 */
 		musb_writeb(mregs, MUSB_DEVCTL, devctl | MUSB_DEVCTL_SESSION);
 		devctl = musb_readb(mregs, MUSB_DEVCTL);
-		if (devctl & MUSB_DEVCTL_BDEVICE)
+		if (devctl & MUSB_DEVCTL_BDEVICE) {
+			WARNING("%s at B_IDLE, workaround BDEVICE\n", __func__);
 			mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
-		else
+		} else {
+			WARNING("%s go from B_IDLE to A_IDLE\n", __func__);
 			musb->xceiv->state = OTG_STATE_A_IDLE;
+		}
 		break;
 	default:
+		WARNING("%s default\n", __func__);
 		break;
 	}
 	spin_unlock_irqrestore(&musb->lock, flags);
@@ -417,6 +430,7 @@ static void da8xx_musb_try_idle(struct musb *musb, unsigned long timeout)
 	/* Never idle if active, or when VBUS timeout is not set as host */
 	if (musb->is_active || (musb->a_wait_bcon == 0 &&
 				musb->xceiv->state == OTG_STATE_A_WAIT_BCON)) {
+		WARNING("%s is_active or A_WAIT_BCON, disabled workaround timer\n", __func__);
 		dev_dbg(musb->controller, "%s active, deleting timer\n",
 			otg_state_string(musb->xceiv->state));
 		del_timer(&otg_workaround);
@@ -426,6 +440,7 @@ static void da8xx_musb_try_idle(struct musb *musb, unsigned long timeout)
 
 	if (time_after(last_timer, timeout) && timer_pending(&otg_workaround)) {
 		dev_dbg(musb->controller, "Longer idle timer already pending, ignoring...\n");
+		WARNING("%s idle timer already pending\n", __func__);
 		return;
 	}
 	last_timer = timeout;
@@ -433,6 +448,7 @@ static void da8xx_musb_try_idle(struct musb *musb, unsigned long timeout)
 	dev_dbg(musb->controller, "%s inactive, starting idle timer for %u ms\n",
 		otg_state_string(musb->xceiv->state),
 		jiffies_to_msecs(timeout - jiffies));
+	WARNING("%s idling\n", __func__);
 	mod_timer(&otg_workaround, timeout);
 }
 
@@ -484,6 +500,7 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 	musb->int_tx = (status & DA8XX_INTR_TX_MASK) >> DA8XX_INTR_TX_SHIFT;
 	musb->int_usb = (status & DA8XX_INTR_USB_MASK) >> DA8XX_INTR_USB_SHIFT;
 
+	WARNING("%s MUSB IRQ %08x (%04x/%04x/%04x) at %s\n", __func__, status, musb->int_rx, musb->int_tx, musb->int_usb, otg_state_string(musb->xceiv->state));
 	/*
 	 * DRVVBUS IRQs are the only proxy we have (a very poor one!) for
 	 * DA8xx's missing ID change IRQ.  We need an ID change IRQ to
@@ -498,6 +515,7 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 		u8 devctl = musb_readb(mregs, MUSB_DEVCTL);
 		int err;
 
+		WARNING("%s DRVVBUS, devctl %08x, drvvbus %08x, vbus state %d, state %s\n", __func__, status, devctl, drvvbus, (devctl>>3)&0x03, otg_state_string(musb->xceiv->state));
 		err = is_host_enabled(musb) && (musb->int_usb &
 						MUSB_INTR_VBUSERROR);
 		if (err) {
@@ -515,7 +533,7 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 			musb->int_usb &= ~MUSB_INTR_VBUSERROR;
 			musb->xceiv->state = OTG_STATE_A_WAIT_VFALL;
 			mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
-			WARNING("VBUS error workaround (delay coming)\n");
+			WARNING("%s DRVVBUS go to A_WAIT_VFALL wrokaround\n", __func__);
 		} else if (is_host_enabled(musb) && drvvbus) {
 			musb->is_active = 1;
 			MUSB_HST_MODE(musb);
@@ -523,12 +541,14 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 			musb->xceiv->state = OTG_STATE_A_WAIT_VRISE;
 			portstate(musb->port1_status |= USB_PORT_STAT_POWER);
 			del_timer(&otg_workaround);
+			WARNING("%s DRVVBUS go to A_WAIT_VRISE because of host && drvvbus\n", __func__);
 		} else {
 			musb->is_active = 0;
 			MUSB_DEV_MODE(musb);
 			musb->xceiv->default_a = 0;
 			musb->xceiv->state = OTG_STATE_B_IDLE;
 			portstate(musb->port1_status &= ~USB_PORT_STAT_POWER);
+			WARNING("%s DRVVBUS go to B_IDLE\n", __func__);
 		}
 
 		dev_dbg(musb->controller, "VBUS %s (%s)%s, devctl %02x\n",
@@ -549,7 +569,10 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 
 	/* Poll for ID change */
 	if (is_otg_enabled(musb) && musb->xceiv->state == OTG_STATE_B_IDLE)
+	{
+		WARNING("%s otg workaround scheduled at B_IDLE\n", __func__);
 		mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
+	}
 
 	spin_unlock_irqrestore(&musb->lock, flags);
 

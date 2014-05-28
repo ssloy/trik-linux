@@ -2080,7 +2080,12 @@ void musb_g_suspend(struct musb *musb)
 	switch (musb->xceiv->state) {
 	case OTG_STATE_B_IDLE:
 		if ((devctl & MUSB_DEVCTL_VBUS) == MUSB_DEVCTL_VBUS)
+		{
+			WARNING("%s from B_IDLE to B_PERIPHERAL\n", __func__);
 			musb->xceiv->state = OTG_STATE_B_PERIPHERAL;
+		}
+		else
+			WARNING("%s not leaving B_IDLE!!\n", __func__);
 		break;
 	case OTG_STATE_B_PERIPHERAL:
 		musb->is_suspended = 1;
@@ -2137,6 +2142,7 @@ void musb_g_disconnect(struct musb *musb)
 	case OTG_STATE_A_PERIPHERAL:
 		if (is_otg_enabled(musb))
 			musb->xceiv->state = OTG_STATE_A_WAIT_VFALL;
+		WARNING("g_disconnect from A_PERIPHERAL to A_WAIT_VFALL\n");
 		break;
 	case OTG_STATE_B_WAIT_ACON:
 	case OTG_STATE_B_HOST:
@@ -2145,6 +2151,7 @@ void musb_g_disconnect(struct musb *musb)
 	case OTG_STATE_B_PERIPHERAL:
 	case OTG_STATE_B_IDLE:
 		musb->xceiv->state = OTG_STATE_B_IDLE;
+		WARNING("g_disconnect from B_PERIPHERAL/B_IDLE to B_IDLE\n");
 		break;
 	case OTG_STATE_B_SRP_INIT:
 		break;

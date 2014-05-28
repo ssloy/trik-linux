@@ -2635,6 +2635,7 @@ static int musb_bus_suspend(struct usb_hcd *hcd)
 	if (!is_host_enabled(musb))
 		return 0;
 
+	WARNING("%s suspending at %s\n", __func__, otg_state_string(musb->xceiv->state));
 	switch (musb->xceiv->state) {
 	case OTG_STATE_A_SUSPEND:
 		return 0;
