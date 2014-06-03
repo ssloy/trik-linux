@@ -1945,7 +1945,7 @@ static int musb_gadget_start(struct usb_gadget *g,
 	musb->is_active = 1;
 
 	otg_set_peripheral(otg, &musb->g);
-	musb->xceiv->state = OTG_STATE_B_IDLE;
+	musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 
 	/*
 	 * FIXME this ignores the softconnect flag.  Drivers are
@@ -2057,7 +2057,7 @@ static int musb_gadget_stop(struct usb_gadget *g,
 
 	(void) musb_gadget_vbus_draw(&musb->g, 0);
 
-	musb->xceiv->state = OTG_STATE_UNDEFINED;
+	musb_state_change(__func__, musb, OTG_STATE_UNDEFINED);
 	stop_activity(musb, driver);
 	otg_set_peripheral(musb->xceiv->otg, NULL);
 
@@ -2119,7 +2119,7 @@ void musb_g_suspend(struct musb *musb)
 	switch (musb->xceiv->state) {
 	case OTG_STATE_B_IDLE:
 		if ((devctl & MUSB_DEVCTL_VBUS) == MUSB_DEVCTL_VBUS)
-			musb->xceiv->state = OTG_STATE_B_PERIPHERAL;
+			musb_state_change(__func__, musb, OTG_STATE_B_PERIPHERAL);
 		break;
 	case OTG_STATE_B_PERIPHERAL:
 		musb->is_suspended = 1;
@@ -2170,12 +2170,12 @@ void musb_g_disconnect(struct musb *musb)
 		if (is_otg_enabled(musb)) {
 			dev_dbg(musb->controller, "Unhandled disconnect %s, setting a_idle\n",
 				otg_state_string(musb->xceiv->state));
-			musb->xceiv->state = OTG_STATE_A_IDLE;
+			musb_state_change(__func__, musb, OTG_STATE_A_IDLE);
 			break;
 		}
 	case OTG_STATE_A_PERIPHERAL:
 		if (is_otg_enabled(musb))
-			musb->xceiv->state = OTG_STATE_A_WAIT_VFALL;
+			musb_state_change(__func__, musb, OTG_STATE_A_WAIT_VFALL);
 		break;
 	case OTG_STATE_B_WAIT_ACON:
 	case OTG_STATE_B_HOST:
@@ -2183,7 +2183,7 @@ void musb_g_disconnect(struct musb *musb)
 			break;
 	case OTG_STATE_B_PERIPHERAL:
 	case OTG_STATE_B_IDLE:
-		musb->xceiv->state = OTG_STATE_B_IDLE;
+		musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 		break;
 	case OTG_STATE_B_SRP_INIT:
 		break;
@@ -2239,10 +2239,10 @@ __acquires(musb->lock)
 	 * or else after HNP, as A-Device
 	 */
 	if (devctl & MUSB_DEVCTL_BDEVICE) {
-		musb->xceiv->state = OTG_STATE_B_PERIPHERAL;
+		musb_state_change(__func__, musb, OTG_STATE_B_PERIPHERAL);
 		musb->g.is_a_peripheral = 0;
 	} else if (is_otg_enabled(musb)) {
-		musb->xceiv->state = OTG_STATE_A_PERIPHERAL;
+		musb_state_change(__func__, musb, OTG_STATE_A_PERIPHERAL);
 		musb->g.is_a_peripheral = 1;
 	} else
 		WARN_ON(1);

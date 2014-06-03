@@ -167,4 +167,11 @@ config MUSB_VERBOSE_REJECTS
 	  it might show that requested transfer size or mode is incompatible
 	  with driver/hardware.
 
+config MUSB_VERBOSE_PHY_STATE
+	bool "Show kernel debug messages when USB PHY state changes"
+	depends on DEBUG_KERNEL
+	default n
+	help
+	  Shows some extra info regarding USB PHY state changes.
+
 endif # USB_MUSB_HDRC

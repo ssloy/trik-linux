@@ -65,10 +65,10 @@ static void musb_do_idle(unsigned long _musb)
 
 		devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
 		if (devctl & MUSB_DEVCTL_BDEVICE) {
-			musb->xceiv->state = OTG_STATE_B_IDLE;
+			musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 			MUSB_DEV_MODE(musb);
 		} else {
-			musb->xceiv->state = OTG_STATE_A_IDLE;
+			musb_state_change(__func__, musb, OTG_STATE_A_IDLE);
 			MUSB_HST_MODE(musb);
 		}
 		break;
@@ -85,15 +85,15 @@ static void musb_do_idle(unsigned long _musb)
 			musb->port1_status |= USB_PORT_STAT_C_SUSPEND << 16;
 			usb_hcd_poll_rh_status(musb_to_hcd(musb));
 			/* NOTE: it might really be A_WAIT_BCON ... */
-			musb->xceiv->state = OTG_STATE_A_HOST;
+			musb_state_change(__func__, musb, OTG_STATE_A_HOST);
 		}
 		break;
 	case OTG_STATE_A_HOST:
 		devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
 		if (devctl &  MUSB_DEVCTL_BDEVICE)
-			musb->xceiv->state = OTG_STATE_B_IDLE;
+			musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 		else
-			musb->xceiv->state = OTG_STATE_A_WAIT_BCON;
+			musb_state_change(__func__, musb, OTG_STATE_A_WAIT_BCON);
 	default:
 		break;
 	}
@@ -173,7 +173,7 @@ static void omap2430_musb_set_vbus(struct musb *musb, int is_on)
 		} else {
 			musb->is_active = 1;
 			otg->default_a = 1;
-			musb->xceiv->state = OTG_STATE_A_WAIT_VRISE;
+			musb_state_change(__func__, musb, OTG_STATE_A_WAIT_VRISE);
 			devctl |= MUSB_DEVCTL_SESSION;
 			MUSB_HST_MODE(musb);
 		}
@@ -185,7 +185,7 @@ static void omap2430_musb_set_vbus(struct musb *musb, int is_on)
 		 */
 
 		otg->default_a = 0;
-		musb->xceiv->state = OTG_STATE_B_IDLE;
+		musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 		devctl &= ~MUSB_DEVCTL_SESSION;
 
 		MUSB_DEV_MODE(musb);
@@ -255,7 +255,7 @@ static void omap_musb_set_mailbox(struct omap2430_glue *glue)
 		dev_dbg(dev, "ID GND\n");
 
 		otg->default_a = true;
-		musb->xceiv->state = OTG_STATE_A_IDLE;
+		musb_state_change(__func__, musb, OTG_STATE_A_IDLE);
 		musb->xceiv->last_event = USB_EVENT_ID;
 		if (!is_otg_enabled(musb) || musb->gadget_driver) {
 			pm_runtime_get_sync(dev);
@@ -268,7 +268,7 @@ static void omap_musb_set_mailbox(struct omap2430_glue *glue)
 		dev_dbg(dev, "VBUS Connect\n");
 
 		otg->default_a = false;
-		musb->xceiv->state = OTG_STATE_B_IDLE;
+		musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 		musb->xceiv->last_event = USB_EVENT_VBUS;
 		if (musb->gadget_driver)
 			pm_runtime_get_sync(dev);

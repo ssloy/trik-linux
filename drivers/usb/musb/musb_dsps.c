@@ -187,15 +187,15 @@ static void otg_timer(unsigned long _musb)
 
 		devctl = dsps_readb(musb->mregs, MUSB_DEVCTL);
 		if (devctl & MUSB_DEVCTL_BDEVICE) {
-			musb->xceiv->state = OTG_STATE_B_IDLE;
+			musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 			MUSB_DEV_MODE(musb);
 		} else {
-			musb->xceiv->state = OTG_STATE_A_IDLE;
+			musb_state_change(__func__, musb, OTG_STATE_A_IDLE);
 			MUSB_HST_MODE(musb);
 		}
 		break;
 	case OTG_STATE_A_WAIT_VFALL:
-		musb->xceiv->state = OTG_STATE_A_WAIT_VRISE;
+		musb_state_change(__func__, musb, OTG_STATE_A_WAIT_VRISE);
 		dsps_writel(musb->ctrl_base, wrp->coreintr_set,
 			    MUSB_INTR_VBUSERROR << wrp->usb_shift);
 		break;
@@ -208,7 +208,7 @@ static void otg_timer(unsigned long _musb)
 			mod_timer(&glue->timer,
 					jiffies + wrp->poll_seconds * HZ);
 		else
-			musb->xceiv->state = OTG_STATE_A_IDLE;
+			musb_state_change(__func__, musb, OTG_STATE_A_IDLE);
 		break;
 	default:
 		break;
@@ -317,7 +317,7 @@ static irqreturn_t dsps_interrupt(int irq, void *hci)
 			 * devctl.
 			 */
 			musb->int_usb &= ~MUSB_INTR_VBUSERROR;
-			musb->xceiv->state = OTG_STATE_A_WAIT_VFALL;
+			musb_state_change(__func__, musb, OTG_STATE_A_WAIT_VFALL);
 			mod_timer(&glue->timer,
 					jiffies + wrp->poll_seconds * HZ);
 			WARNING("VBUS error workaround (delay coming)\n");
@@ -325,13 +325,13 @@ static irqreturn_t dsps_interrupt(int irq, void *hci)
 			musb->is_active = 1;
 			MUSB_HST_MODE(musb);
 			musb->xceiv->otg->default_a = 1;
-			musb->xceiv->state = OTG_STATE_A_WAIT_VRISE;
+			musb_state_change(__func__, musb, OTG_STATE_A_WAIT_VRISE);
 			del_timer(&glue->timer);
 		} else {
 			musb->is_active = 0;
 			MUSB_DEV_MODE(musb);
 			musb->xceiv->otg->default_a = 0;
-			musb->xceiv->state = OTG_STATE_B_IDLE;
+			musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 		}
 
 		/* NOTE: this must complete power-on within 100 ms. */

@@ -659,6 +659,19 @@ static inline const char *musb_get_dma_name(struct musb *musb)
 extern void musb_gb_work(struct work_struct *data);
 extern bool musb_is_intr_sched(void);
 extern void musb_host_intr_schedule(struct musb *musb);
+
+static inline void musb_state_change(const char *func, struct musb *musb,
+                                     enum usb_otg_state state)
+{
+#ifdef CONFIG_MUSB_VERBOSE_PHY_STATE
+	dev_dbg(musb->controller, "%s: phy state change from %s to %s\n",
+	        func, otg_state_string(musb->xceiv->state),
+	        otg_state_string(state));
+#endif
+
+	musb->xceiv->state = state;
+}
+
 /*-------------------------- ProcFS definitions ---------------------*/
 
 struct proc_dir_entry;

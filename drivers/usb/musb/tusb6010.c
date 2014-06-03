@@ -525,7 +525,7 @@ static void tusb_musb_set_vbus(struct musb *musb, int is_on)
 	if (is_on) {
 		timer = OTG_TIMER_MS(OTG_TIME_A_WAIT_VRISE);
 		otg->default_a = 1;
-		musb->xceiv->state = OTG_STATE_A_WAIT_VRISE;
+		musb_state_change(__func__, musb, OTG_STATE_A_WAIT_VRISE);
 		devctl |= MUSB_DEVCTL_SESSION;
 
 		conf |= TUSB_DEV_CONF_USB_HOST_MODE;
@@ -541,13 +541,13 @@ static void tusb_musb_set_vbus(struct musb *musb, int is_on)
 			switch (musb->xceiv->state) {
 			case OTG_STATE_A_WAIT_VRISE:
 			case OTG_STATE_A_WAIT_BCON:
-				musb->xceiv->state = OTG_STATE_A_WAIT_VFALL;
+				musb_state_change(__func__, musb, OTG_STATE_A_WAIT_VFALL);
 				break;
 			case OTG_STATE_A_WAIT_VFALL:
-				musb->xceiv->state = OTG_STATE_A_IDLE;
+				musb_state_change(__func__, musb, OTG_STATE_A_IDLE);
 				break;
 			default:
-				musb->xceiv->state = OTG_STATE_A_IDLE;
+				musb_state_change(__func__, musb, OTG_STATE_A_IDLE);
 			}
 			musb->is_active = 0;
 			otg->default_a = 1;
@@ -555,7 +555,7 @@ static void tusb_musb_set_vbus(struct musb *musb, int is_on)
 		} else {
 			musb->is_active = 0;
 			otg->default_a = 0;
-			musb->xceiv->state = OTG_STATE_B_IDLE;
+			musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 			MUSB_DEV_MODE(musb);
 		}
 
@@ -684,7 +684,7 @@ tusb_otg_ints(struct musb *musb, u32 int_src, void __iomem *tbase)
 				dev_dbg(musb->controller, "Forcing disconnect (no interrupt)\n");
 				if (musb->xceiv->state != OTG_STATE_B_IDLE) {
 					/* INTR_DISCONNECT can hide... */
-					musb->xceiv->state = OTG_STATE_B_IDLE;
+					musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 					musb->int_usb |= MUSB_INTR_DISCONNECT;
 				}
 				musb->is_active = 0;
@@ -759,7 +759,7 @@ tusb_otg_ints(struct musb *musb, u32 int_src, void __iomem *tbase)
 					dev_dbg(musb->controller, "devctl %02x\n", devctl);
 					break;
 				}
-				musb->xceiv->state = OTG_STATE_A_WAIT_BCON;
+				musb_state_change(__func__, musb, OTG_STATE_A_WAIT_BCON);
 				musb->is_active = 0;
 				idle_timeout = jiffies
 					+ msecs_to_jiffies(musb->a_wait_bcon);

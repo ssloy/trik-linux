@@ -220,7 +220,7 @@ static void musb_conn_timer_handler(unsigned long _musb)
 
 		if (!(val & MUSB_DEVCTL_BDEVICE)) {
 			gpio_set_value(musb->config->gpio_vrsel, 1);
-			musb->xceiv->state = OTG_STATE_A_WAIT_BCON;
+			musb_state_change(__func__, musb, OTG_STATE_A_WAIT_BCON);
 		} else {
 			gpio_set_value(musb->config->gpio_vrsel, 0);
 			/* Ignore VBUSERROR and SUSPEND IRQ */
@@ -231,7 +231,7 @@ static void musb_conn_timer_handler(unsigned long _musb)
 			val = MUSB_INTR_SUSPEND | MUSB_INTR_VBUSERROR;
 			musb_writeb(musb->mregs, MUSB_INTRUSB, val);
 			if (is_otg_enabled(musb))
-				musb->xceiv->state = OTG_STATE_B_IDLE;
+				musb_state_change(__func__, musb, OTG_STATE_B_IDLE);
 			else
 				musb_writeb(musb->mregs, MUSB_POWER, MUSB_POWER_HSENAB);
 		}
@@ -251,7 +251,7 @@ static void musb_conn_timer_handler(unsigned long _musb)
 
 		if (!(val & MUSB_DEVCTL_BDEVICE)) {
 			gpio_set_value(musb->config->gpio_vrsel, 1);
-			musb->xceiv->state = OTG_STATE_A_WAIT_BCON;
+			musb_state_change(__func__, musb, OTG_STATE_A_WAIT_BCON);
 		} else {
 			gpio_set_value(musb->config->gpio_vrsel, 0);
 
