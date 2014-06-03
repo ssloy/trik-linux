@@ -373,7 +373,7 @@ struct musb {
 	void __iomem		*sync_va;
 
 	/* passed down from chip/board specific irq handlers */
-	u8			int_usb;
+	u16			int_usb;
 	u16			int_rx;
 	u16			int_tx;
 
