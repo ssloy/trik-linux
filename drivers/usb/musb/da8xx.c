@@ -338,7 +338,7 @@ static void da8xx_musb_set_vbus(struct musb *musb, int is_on)
 	WARN_ON(is_on && is_peripheral_enabled(musb));
 }
 
-#define	POLL_SECONDS	2
+#define	POLL_TIMEOUT    (1*HZ)
 
 static struct timer_list otg_workaround;
 
@@ -380,7 +380,7 @@ static void otg_timer(unsigned long _musb)
 		 * VBUSERR got reported during enumeration" cases.
 		 */
 		if (devctl & MUSB_DEVCTL_VBUS) {
-			mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
+			mod_timer(&otg_workaround, jiffies + POLL_TIMEOUT);
 			break;
 		}
 		musb_state_change(__func__, musb, OTG_STATE_A_WAIT_VRISE);
@@ -406,7 +406,7 @@ static void otg_timer(unsigned long _musb)
 		musb_writeb(mregs, MUSB_DEVCTL, devctl | MUSB_DEVCTL_SESSION);
 		devctl = musb_readb(mregs, MUSB_DEVCTL);
 		if (devctl & MUSB_DEVCTL_BDEVICE)
-			mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
+			mod_timer(&otg_workaround, jiffies + POLL_TIMEOUT);
 		else
 			musb_state_change(__func__, musb, OTG_STATE_A_IDLE);
 		break;
@@ -528,7 +528,7 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 			 */
 			musb->int_usb &= ~MUSB_INTR_VBUSERROR;
 			musb_state_change(__func__, musb, OTG_STATE_A_WAIT_VFALL);
-			mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
+			mod_timer(&otg_workaround, jiffies + POLL_TIMEOUT);
 			WARNING("VBUS error workaround (delay coming)\n");
 		} else if (is_host_enabled(musb) && drvvbus) {
 			musb->is_active = 1;
@@ -563,7 +563,7 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 
 	/* Poll for ID change */
 	if (is_otg_enabled(musb) && musb->xceiv->state == OTG_STATE_B_IDLE)
-		mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
+		mod_timer(&otg_workaround, jiffies + POLL_TIMEOUT);
 
 	spin_unlock_irqrestore(&musb->lock, flags);
 
