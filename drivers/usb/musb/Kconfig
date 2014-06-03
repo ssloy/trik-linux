@@ -154,17 +154,17 @@ config MUSB_TI_CPPI41_DMA_IN_TRANSPARENT
 	depends on USB_TI_CPPI41_DMA
 	default n
 	help
-	 Enable transparent mode dma for all host rx transfers. Select this
-	 if you see Rx request lock up (no IN token on the bus) when your
-	 device uses or use case involves, control transfer while
-	 CPPI 4.1 DMA is doing data transfer.
+	  Enable transparent mode dma for all host rx transfers. Select this
+	  if you see Rx request lock up (no IN token on the bus) when your
+	  device uses or use case involves, control transfer while
+	  CPPI 4.1 DMA is doing data transfer.
 
 config MUSB_VERBOSE_REJECTS
 	bool "Show kernel info messages when USB requests are rejected by driver"
 	default n
 	help
-	 Shows some extra info why USB request was rejected. For example,
-	 it might show that requested transfer size or mode is incompatible
-	 with driver/hardware.
+	  Shows some extra info why USB request was rejected. For example,
+	  it might show that requested transfer size or mode is incompatible
+	  with driver/hardware.
 
 endif # USB_MUSB_HDRC
