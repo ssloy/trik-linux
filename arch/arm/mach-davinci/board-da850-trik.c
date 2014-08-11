@@ -620,32 +620,197 @@ exit_audio_init:
 	return ret;
 }
 
+
+
+
 /*
  * ILI9340-based LCD
  */
+static const struct da8xx_ili9340_pdata da850_trik_lcdc_generic_pdata = {
+	.visual_mode		= DA8XX_LCDC_VISUAL_565,
+	.visual_mode_red_blue_swap	= true, // fix for NewHeaven display with messed red and blue components
+	.fps			= 50, //20ms delay between memory write and redrawing
+
+	.lcdc_lidd_mode		= DA8XX_LCDC_LIDD_MODE_8080ASYNC,
+	.lcdc_lidd_cs		= DA8XX_LCDC_LIDD_CS0,
+	.lcdc_lidd_ale_pol	= DA8XX_LCDC_LIDD_POL_ACTIVE_LOW,
+	.lcdc_lidd_rs_en_pol	= DA8XX_LCDC_LIDD_POL_ACTIVE_LOW,
+	.lcdc_lidd_ws_dir_pol	= DA8XX_LCDC_LIDD_POL_ACTIVE_LOW,
+	.lcdc_lidd_cs_pol	= DA8XX_LCDC_LIDD_POL_ACTIVE_LOW,
+	.lcdc_lidd_edma_burst	= 16,
+
+	// Data taken from ch 19.3.2
+	.lcdc_lidd_mclk_ns	= 0,	// Although not actually exported, it is used as granularity for timings below
+					// Run at LCD_CLK for best granularity
+	.lcdc_t_ta_ns		= 0,	// Tchw=0
+	.lcdc_t_rhold_ns	= 90,	// Taht=10, Trdh=90/90
+	.lcdc_t_rstrobe_ns	= 355,	// Trdl=45/355, Trcs=45/355
+	.lcdc_t_rsu_ns		= 0,	// Tast=0, no CS->RD_low timeout
+	.lcdc_t_whold_ns	= 33,   // Taht=10, Twrh=33, Tdht=10
+	.lcdc_t_wstrobe_ns	= 33,	// Twrl=33, Tcs=15
+	.lcdc_t_wsu_ns		= 0,	// Tast=0, no CS->WR_low timeout
+
+	.display_t_reset_to_ready_ms	= 120,
+	.display_t_sleep_in_out_ms	= 120,
+
+	.display_idle			= false,
+	.display_backlight		= true,
+	.display_brightness		= 0x100,
+	.display_inversion		= false,
+	.display_gamma			= DA8XX_LCDC_DISPLAY_GAMMA_DEFAULT,
+
+	.cb_power_ctrl		= &da850_trik_lcd_power_ctrl,
+	.cb_backlight_ctrl	= &da850_trik_lcd_backlight_ctrl,
+};
+
+#warning Temporary solution for dynamic screen orientation change, required until LCD controller will be fixed to change resolution in runtime
+static unsigned da850_trik_lcdc_orientation = 0;
+static struct da8xx_ili9340_pdata da850_trik_lcdc_pdata;
 
 
-int display_orientation = 1; // '1' - landscape; '0' - portrait
-
-EXPORT_SYMBOL (display_orientation);
-static int __init set_orientation(char *str)
+static int da850_trik_lcdc_prepare_pdata(unsigned _orientation, struct da8xx_ili9340_pdata* _pdata)
 {
-	if (!strcasecmp(str,"landscape"))
-		display_orientation = 1;
-	else if (!strcasecmp(str,"portrait"))
-		display_orientation = 0;
-	else 
-		return 1;
-	return 0;
+	int ret;
+
+	switch (_orientation)
+	{
+	case   0:
+		if (_pdata)
+		{
+			_pdata->xres		= 320;
+			_pdata->yres		= 240;
+			_pdata->xflip		= false;
+			_pdata->yflip		= false;
+			_pdata->xyswap		= true;
+			_pdata->screen_height	= 37; //36,72mm
+			_pdata->screen_width	= 49; //48,96mm
+		}
+		return 0;
+
+	case  90:
+		if (_pdata)
+		{
+			_pdata->xres		= 240;
+			_pdata->yres		= 320;
+			_pdata->xflip		= true;
+			_pdata->yflip		= false;
+			_pdata->xyswap		= false;
+			_pdata->screen_height	= 49; //48,96mm
+			_pdata->screen_width	= 37; //36,72mm
+		}
+		return 0;
+
+	case 180:
+		if (_pdata)
+		{
+			_pdata->xres		= 320;
+			_pdata->yres		= 240;
+			_pdata->xflip		= true;
+			_pdata->yflip		= true;
+			_pdata->xyswap		= true;
+			_pdata->screen_height	= 37; //36,72mm
+			_pdata->screen_width	= 49; //48,96mm
+		}
+		return 0;
+
+	case 270:
+		if (_pdata)
+		{
+			_pdata->xres		= 240;
+			_pdata->yres		= 320;
+			_pdata->xflip		= false;
+			_pdata->yflip		= true;
+			_pdata->xyswap		= false;
+			_pdata->screen_height	= 49; //48,96mm
+			_pdata->screen_width	= 37; //36,72mm
+		}
+		return 0;
+
+	default:
+		return -EINVAL;
+	}
+}
+
+static void da850_trik_lcdc_unregister_device()
+{
+	platform_device_unregister(&da850_trik_lcdc_device);
+}
+
+static int da850_trik_lcdc_register_device()
+{
+	return platform_device_register(&da850_trik_lcdc_device);
 }
 
 
-__setup("trik.display_orientation=", set_orientation);
+static ssize_t da850_trik_lcdc_orientation_show(struct device* _dev, struct device_attribute* _attr,
+                                                char* _buf)
+{
+	return snprintf(_buf, PAGE_SIZE, "%u\n", da850_trik_lcdc_rotation);
+}
+
+static ssize_t da850_trik_lcdc_orientation_store(struct device* _dev, struct device_attribute* _attr,
+                                                 const char* _buf, size_t _count)
+{
+	unsigned long ul;
+	int ret;
+
+	if (strict_strtoul(_buf, 10, &ul))
+		return -EINVAL;
+
+	if (ul == da850_trik_lcdc_orientation)
+		return _count;
+
+	if (ret = da850_trik_lcdc_prepare_pdata(ul, NULL))
+		return ret;
+
+	da850_trik_lcdc_unregister_device())
+
+	ret = da850_trik_lcdc_prepare_pdata(ul, &da850_trik_lcdc_pdata);
+	BUG_ON(ret);
+
+	da850_trik_lcdc_orientation = ul;
+	if (ret = da850_trik_lcdc_register_device())
+		return ret;
+
+	return _count;
+}
+
+static const DEVICE_ATTR(trik_display_orientation, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH,
+                         &da850_trik_lcdc_orientation_show, &da850_trik_lcdc_orientation_store);
+
+
+static int __init da850_trik_lcdc_orientation_init(char* _str)
+{
+	if (!strcasecmp(_str, "landscape"))
+		da850_trik_lcdc_orientation = 0;
+	else if (!strcasecmp(_str, "portrait"))
+		da850_trik_lcdc_orientation = 90;
+	else if (!strcasecmp(_str, "0"))
+		da850_trik_lcdc_orientation = 0;
+	else if (!strcasecmp(_str, "90"))
+		da850_trik_lcdc_orientation = 90;
+	else if (!strcasecmp(_str, "180"))
+		da850_trik_lcdc_orientation = 180;
+	else if (!strcasecmp(_str, "270"))
+		da850_trik_lcdc_orientation = 270;
+	else
+		return 1;
+
+	return 0;
+}
+
+__setup("trik.display_orientation=", da850_trik_lcdc_orientation_init);
+
 
 static const short da850_trik_lcd_extra_pins[] __initconst = {
 	DA850_GPIO6_12, // LCD backlight
 	DA850_GPIO8_10, // LCD reset
 	-1
+};
+
+static const struct gpio da850_trik_lcd_extra_gpio[] __initconst = {
+	{ GPIO_TO_PIN(6, 12), GPIOF_OUT_INIT_LOW|GPIOF_EXPORT_DIR_FIXED, "LCD backlight" },
+	{ GPIO_TO_PIN(8, 10), GPIOF_OUT_INIT_LOW|GPIOF_EXPORT_DIR_FIXED, "LCD reset" },
 };
 
 static void da850_trik_lcd_backlight_ctrl(bool _backlight)
@@ -678,44 +843,6 @@ static struct resource da850_trik_lcdc_resources[] = {
 	},
 };
 
-static struct da8xx_ili9340_pdata da850_trik_lcdc_pdata = {
-	.visual_mode		= DA8XX_LCDC_VISUAL_565,
-	.visual_mode_red_blue_swap	= true, // fix for NewHeaven display with messed red and blue components
-	.fps			= 50, //20ms delay between memory write and redrawing
-
-	.lcdc_lidd_mode		= DA8XX_LCDC_LIDD_MODE_8080ASYNC,
-	.lcdc_lidd_cs		= DA8XX_LCDC_LIDD_CS0,
-	.lcdc_lidd_ale_pol	= DA8XX_LCDC_LIDD_POL_ACTIVE_LOW,
-	.lcdc_lidd_rs_en_pol	= DA8XX_LCDC_LIDD_POL_ACTIVE_LOW,
-	.lcdc_lidd_ws_dir_pol	= DA8XX_LCDC_LIDD_POL_ACTIVE_LOW,
-	.lcdc_lidd_cs_pol	= DA8XX_LCDC_LIDD_POL_ACTIVE_LOW,
-	.lcdc_lidd_edma_burst	= 16,
-
-        // Data taken from ch 19.3.2
-	.lcdc_lidd_mclk_ns	= 0,	// Although not actually exported, it is used as granularity for timings below
-					// Run at LCD_CLK for best granularity
-	.lcdc_t_ta_ns		= 0,	// Tchw=0
-	.lcdc_t_rhold_ns	= 90,	// Taht=10, Trdh=90/90
-	.lcdc_t_rstrobe_ns	= 355,	// Trdl=45/355, Trcs=45/355
-	.lcdc_t_rsu_ns		= 0,	// Tast=0, no CS->RD_low timeout
-	.lcdc_t_whold_ns	= 33,   // Taht=10, Twrh=33, Tdht=10
-	.lcdc_t_wstrobe_ns	= 33,	// Twrl=33, Tcs=15
-	.lcdc_t_wsu_ns		= 0,	// Tast=0, no CS->WR_low timeout
-
-	.display_t_reset_to_ready_ms	= 120,
-	.display_t_sleep_in_out_ms	= 120,
-
-	.display_idle			= false,
-	.display_backlight		= true,
-	.display_brightness		= 0x100,
-	.display_inversion		= false,
-	.display_gamma			= DA8XX_LCDC_DISPLAY_GAMMA_DEFAULT,
-
-	.cb_power_ctrl		= &da850_trik_lcd_power_ctrl,
-	.cb_backlight_ctrl	= &da850_trik_lcd_backlight_ctrl,
-
-};
-
 static struct platform_device da850_trik_lcdc_device = {
 	.name		= "da8xx_lcdc_ili9340",
 	.id		= 0,
@@ -726,61 +853,45 @@ static struct platform_device da850_trik_lcdc_device = {
 	},
 };
 
-static __init int da850_trik_lcd_init(void){
+static __init int da850_trik_lcd_init(void)
+{
 	int ret;
 
 	ret = davinci_cfg_reg_list(da850_lcdcntl_pins);
-	if (ret) {
-		pr_err("%s: LCD ctrl pinmux setup failed: %d\n", __func__, ret);
-		return ret;
-	}
+	if (ret)
+		pr_warning("%s: LCD ctrl pinmux setup failed: %d\n", __func__, ret);
+
 	ret = davinci_cfg_reg_list(da850_trik_lcd_extra_pins);
+	if (ret)
+		pr_warning("%s: LCD extra pinmux setup failed: %d\n", __func__, ret);
+
+	ret = gpio_request_array(da850_trik_lcd_extra_gpio, ARRAY_SIZE(da850_trik_lcd_extra_gpio));
+	if (ret)
+		pr_warning("%s: LCD extra gpio setup failed: %d\n", __func__, ret);
+
+	ret = da850_trik_lcdc_prepare_pdata(da850_trik_lcdc_orientation, &da850_trik_lcdc_pdata);
 	if (ret) {
-		pr_err("%s: LCD extra pinmux setup failed: %d\n", __func__, ret);
-		return ret;
-	}
-	ret = gpio_request_one(GPIO_TO_PIN(6, 12), GPIOF_OUT_INIT_LOW, "LCD backlight");
-	if (ret){
-		pr_err("%s: LCD backlight gpio request failed: %d\n", __func__, ret);
-		return ret;
-	}
-	ret = gpio_request_one(GPIO_TO_PIN(8, 10), GPIOF_OUT_INIT_LOW, "LCD reset");
-	if (ret) {
-		pr_warning("%s: LCD reset gpio request failed: %d\n", __func__, ret);
-		goto exit_request_one;
-	}
-	if (display_orientation){
-		da850_trik_lcdc_pdata.xres			= 320;
-		da850_trik_lcdc_pdata.yres			= 240;
-		da850_trik_lcdc_pdata.xflip			= false;
-		da850_trik_lcdc_pdata.yflip			= false;
-		da850_trik_lcdc_pdata.xyswap			= true;
-		da850_trik_lcdc_pdata.screen_height		= 37; //36,72mm
-		da850_trik_lcdc_pdata.screen_width		= 49; //48,96mm
-	}
-	else 
-	{
-		da850_trik_lcdc_pdata.xres			= 240;
-		da850_trik_lcdc_pdata.yres			= 320;
-		da850_trik_lcdc_pdata.xflip			= true;
-		da850_trik_lcdc_pdata.yflip			= false;
-		da850_trik_lcdc_pdata.xyswap			= false;
-		da850_trik_lcdc_pdata.screen_height		= 49; //48,96mm
-		da850_trik_lcdc_pdata.screen_width		= 37; //36,72mm
+		pr_warning("%s: LCD platform data preparation failed: %d\n", __func__, ret);
+		goto exit_gpio_free_array;
 	}
 
-	ret = platform_device_register(&da850_trik_lcdc_device);
+	ret = da850_trik_lcdc_register_device();
 	if (ret) {
-		pr_err("%s: LCD platform device register failed: %d\n", __func__, ret);
-		goto exit_register_device;
+		pr_warning("%s: LCD platform device register failed: %d\n", __func__, ret);
+		goto exit_gpio_free_array;
 	}
+
 	return 0;
-exit_register_device:
-	gpio_free(GPIO_TO_PIN(8, 10));
-exit_request_one:
-	gpio_free(GPIO_TO_PIN(6, 12));
+
+ exit_gpio_free_array:
+	gpio_free_array(GPIO_TO_PIN(8, 10));
+ exit:
 	return ret;
 }
+
+
+
+
 static const short da850_trik_leds_pins[] __initconst = {
 	DA850_GPIO5_9,
 	DA850_GPIO5_8,
