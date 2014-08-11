@@ -671,10 +671,33 @@ static unsigned da850_trik_lcdc_orientation = 0;
 static struct da8xx_ili9340_pdata da850_trik_lcdc_pdata;
 
 
+#define DA8XX_LCD_CNTRL_BASE		0x01e13000
+static struct resource da850_trik_lcdc_resources[] = {
+	[0] = { /* registers */
+		.start  = DA8XX_LCD_CNTRL_BASE,
+		.end    = DA8XX_LCD_CNTRL_BASE + SZ_4K - 1,
+		.flags  = IORESOURCE_MEM,
+	},
+	[1] = { /* interrupt */
+		.start  = IRQ_DA8XX_LCDINT,
+		.end    = IRQ_DA8XX_LCDINT,
+		.flags  = IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device da850_trik_lcdc_device = {
+	.name		= "da8xx_lcdc_ili9340",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(da850_trik_lcdc_resources),
+	.resource	= da850_trik_lcdc_resources,
+	.dev = {
+		.platform_data 		= &da850_trik_lcdc_pdata,
+	},
+};
+
+
 static int da850_trik_lcdc_prepare_pdata(unsigned _orientation, struct da8xx_ili9340_pdata* _pdata)
 {
-	int ret;
-
 	switch (_orientation)
 	{
 	case   0:
@@ -734,12 +757,12 @@ static int da850_trik_lcdc_prepare_pdata(unsigned _orientation, struct da8xx_ili
 	}
 }
 
-static void da850_trik_lcdc_unregister_device()
+static void da850_trik_lcdc_unregister_device(void)
 {
 	platform_device_unregister(&da850_trik_lcdc_device);
 }
 
-static int da850_trik_lcdc_register_device()
+static int da850_trik_lcdc_register_device(void)
 {
 	return platform_device_register(&da850_trik_lcdc_device);
 }
@@ -748,7 +771,7 @@ static int da850_trik_lcdc_register_device()
 static ssize_t da850_trik_lcdc_orientation_show(struct device* _dev, struct device_attribute* _attr,
                                                 char* _buf)
 {
-	return snprintf(_buf, PAGE_SIZE, "%u\n", da850_trik_lcdc_rotation);
+	return snprintf(_buf, PAGE_SIZE, "%u\n", da850_trik_lcdc_orientation);
 }
 
 static ssize_t da850_trik_lcdc_orientation_store(struct device* _dev, struct device_attribute* _attr,
@@ -763,16 +786,18 @@ static ssize_t da850_trik_lcdc_orientation_store(struct device* _dev, struct dev
 	if (ul == da850_trik_lcdc_orientation)
 		return _count;
 
-	if (ret = da850_trik_lcdc_prepare_pdata(ul, NULL))
+	ret = da850_trik_lcdc_prepare_pdata(ul, NULL);
+	if (ret)
 		return ret;
 
-	da850_trik_lcdc_unregister_device())
+	da850_trik_lcdc_unregister_device();
 
 	ret = da850_trik_lcdc_prepare_pdata(ul, &da850_trik_lcdc_pdata);
 	BUG_ON(ret);
 
 	da850_trik_lcdc_orientation = ul;
-	if (ret = da850_trik_lcdc_register_device())
+	ret = da850_trik_lcdc_register_device();
+	if (ret)
 		return ret;
 
 	return _count;
@@ -805,17 +830,6 @@ static int __init da850_trik_lcdc_orientation_init(char* _str)
 __setup("trik.display_orientation=", da850_trik_lcdc_orientation_init);
 
 
-static const short da850_trik_lcd_extra_pins[] __initconst = {
-	DA850_GPIO6_12, // LCD backlight
-	DA850_GPIO8_10, // LCD reset
-	-1
-};
-
-static const struct gpio da850_trik_lcd_extra_gpio[] __initconst = {
-	{ GPIO_TO_PIN(6, 12), GPIOF_OUT_INIT_LOW|GPIOF_EXPORT_DIR_FIXED, "LCD backlight" },
-	{ GPIO_TO_PIN(8, 10), GPIOF_OUT_INIT_LOW|GPIOF_EXPORT_DIR_FIXED, "LCD reset" },
-};
-
 static void da850_trik_lcd_backlight_ctrl(bool _backlight)
 {
 	gpio_set_value(GPIO_TO_PIN(6, 12), _backlight);
@@ -832,28 +846,16 @@ static void da850_trik_lcd_power_ctrl(bool _power_up)
 	}
 }
 
-#define DA8XX_LCD_CNTRL_BASE		0x01e13000
-static struct resource da850_trik_lcdc_resources[] = {
-	[0] = { /* registers */
-		.start  = DA8XX_LCD_CNTRL_BASE,
-		.end    = DA8XX_LCD_CNTRL_BASE + SZ_4K - 1,
-		.flags  = IORESOURCE_MEM,
-	},
-	[1] = { /* interrupt */
-		.start  = IRQ_DA8XX_LCDINT,
-		.end    = IRQ_DA8XX_LCDINT,
-		.flags  = IORESOURCE_IRQ,
-	},
+
+static const short da850_trik_lcd_extra_pins[] __initconst = {
+	DA850_GPIO6_12, // LCD backlight
+	DA850_GPIO8_10, // LCD reset
+	-1
 };
 
-static struct platform_device da850_trik_lcdc_device = {
-	.name		= "da8xx_lcdc_ili9340",
-	.id		= 0,
-	.num_resources	= ARRAY_SIZE(da850_trik_lcdc_resources),
-	.resource	= da850_trik_lcdc_resources,
-	.dev = {
-		.platform_data 		= &da850_trik_lcdc_pdata,
-	},
+static const struct gpio da850_trik_lcd_extra_gpio[] __initconst = {
+	{ GPIO_TO_PIN(6, 12), GPIOF_OUT_INIT_LOW|GPIOF_EXPORT_DIR_FIXED, "LCD backlight" },
+	{ GPIO_TO_PIN(8, 10), GPIOF_OUT_INIT_LOW|GPIOF_EXPORT_DIR_FIXED, "LCD reset" },
 };
 
 static __init int da850_trik_lcd_init(void)
@@ -887,8 +889,8 @@ static __init int da850_trik_lcd_init(void)
 	return 0;
 
  exit_gpio_free_array:
-	gpio_free_array(GPIO_TO_PIN(8, 10));
- exit:
+	gpio_free_array(da850_trik_lcd_extra_gpio, ARRAY_SIZE(da850_trik_lcd_extra_gpio));
+ //exit:
 	return ret;
 }
 
