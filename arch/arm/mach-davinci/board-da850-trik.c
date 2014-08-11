@@ -626,6 +626,9 @@ exit_audio_init:
 /*
  * ILI9340-based LCD
  */
+static void da850_trik_lcd_backlight_ctrl(bool _backlight);
+static void da850_trik_lcd_power_ctrl(bool _power_up);
+
 static const struct da8xx_ili9340_pdata da850_trik_lcdc_generic_pdata = {
 	.visual_mode		= DA8XX_LCDC_VISUAL_565,
 	.visual_mode_red_blue_swap	= true, // fix for NewHeaven display with messed red and blue components
