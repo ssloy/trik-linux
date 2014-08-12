@@ -703,6 +703,7 @@ static int da850_trik_lcdc_prepare_pdata(unsigned _orientation, struct da8xx_ili
 	case   0:
 		if (_pdata)
 		{
+			memcpy(_pdata, &da850_trik_lcdc_generic_pdata, sizeof(*_pdata));
 			_pdata->xres		= 320;
 			_pdata->yres		= 240;
 			_pdata->xflip		= false;
@@ -716,6 +717,7 @@ static int da850_trik_lcdc_prepare_pdata(unsigned _orientation, struct da8xx_ili
 	case  90:
 		if (_pdata)
 		{
+			memcpy(_pdata, &da850_trik_lcdc_generic_pdata, sizeof(*_pdata));
 			_pdata->xres		= 240;
 			_pdata->yres		= 320;
 			_pdata->xflip		= true;
@@ -729,6 +731,7 @@ static int da850_trik_lcdc_prepare_pdata(unsigned _orientation, struct da8xx_ili
 	case 180:
 		if (_pdata)
 		{
+			memcpy(_pdata, &da850_trik_lcdc_generic_pdata, sizeof(*_pdata));
 			_pdata->xres		= 320;
 			_pdata->yres		= 240;
 			_pdata->xflip		= true;
@@ -742,6 +745,7 @@ static int da850_trik_lcdc_prepare_pdata(unsigned _orientation, struct da8xx_ili
 	case 270:
 		if (_pdata)
 		{
+			memcpy(_pdata, &da850_trik_lcdc_generic_pdata, sizeof(*_pdata));
 			_pdata->xres		= 240;
 			_pdata->yres		= 320;
 			_pdata->xflip		= false;
