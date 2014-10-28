@@ -41,8 +41,7 @@
 #include <linux/da8xx-ili9340-fb.h>
 #include <linux/l3g42xxd.h>
 
-
-
+#include <media/davinci/vpif_types.h>
 
 static const short da850_trik_uart0_pins[] __initconst = {
 	DA850_UART0_RXD, DA850_UART0_TXD,
@@ -1624,6 +1623,78 @@ static __init int da850_trik_bwsensor_init(void)
 
 
 
+static const struct vpif_input da850_trik_vpif_capture_ch0_inputs[] = {
+	{
+		.input = {
+			.index		= 0,
+			.name		= "Channel0",
+			.type		= V4L2_INPUT_TYPE_CAMERA,
+			.capabilities	= V4L2_IN_CAP_STD,
+			.std		= V4L2_STD_ALL,
+		},
+		.subdev_name = "ov7690-0-fake",
+	},
+	{
+		.input = {
+			.index		= 1,
+			.name		= "Channel1",
+			.type		= V4L2_INPUT_TYPE_CAMERA,
+			.capabilities	= V4L2_IN_CAP_STD,
+			.std		= V4L2_STD_ALL,
+		},
+		.subdev_name = "ov7690-1-fake",
+	},
+};
+
+static struct vpif_subdev_info da850_trik_vpif_capture_subdev[] = {
+	{
+		.name = "ov7690-0-fake",
+		.board_info = {
+//			I2C_BOARD_INFO("ov7690", 0x21),
+		},
+	},
+	{
+		.name = "ov7690-1-fake",
+		.board_info = {
+//			I2C_BOARD_INFO("ov7690", 0x21),
+		},
+	},
+};
+
+static struct vpif_capture_config da850_trik_vpif_capture_config = {
+	.subdev_info	= da850_trik_vpif_capture_subdev,
+	.subdev_count	= ARRAY_SIZE(da850_trik_vpif_capture_subdev),
+	.chan_config[0] = {
+		.inputs		= da850_trik_vpif_capture_ch0_inputs,
+		.input_count	= ARRAY_SIZE(da850_trik_vpif_capture_ch0_inputs),
+	},
+	.card_name = "TRIK-TEST Video Capture",
+};
+
+static int __init da850_trik_vpif_init(void)
+{
+	int ret;
+
+	ret = davinci_cfg_reg_list(da850_vpif_capture_pins);
+	if (ret){
+		pr_err("%s: vpif pins mux setup failed: %d\n", __func__, ret);
+		return ret;
+	}
+
+	ret = da850_register_vpif();
+	if (ret != 0) {
+		pr_err("%s: da850_register_vpif() failed: %d\n", __func__, ret);
+		return ret;
+	}
+
+	ret = da850_register_vpif_capture(&da850_trik_vpif_capture_config);
+	if (ret != 0) {
+		pr_err("%s: da850_register_vpif_capture() failed: %d\n", __func__, ret);
+		return ret;
+	}
+
+	return 0;
+}
 
 static __init void da850_trik_init(void)
 {
@@ -1729,7 +1800,9 @@ static __init void da850_trik_init(void)
 	if (ret)
 		pr_warning("%s: power connections init failed: %d\n", __func__, ret);	
 
-#warning TODO vpif
+	ret = da850_trik_vpif_init();
+	if (ret)
+		pr_warning("%s: VPIF init failed: %d\n", __func__, ret);
 
 	if (!jd1_jd2){
 		ret = da850_trik_bwsensor_init();
