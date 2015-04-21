@@ -40,7 +40,7 @@
 #include <linux/wl12xx.h>
 #include <linux/da8xx-ili9340-fb.h>
 #include <linux/l3g42xxd.h>
-
+#include <linux/mma845x.h>
 
 
 
@@ -343,6 +343,12 @@ static const short da850_trik_i2c1_mma845x_pins[] __initconst = {
 	DA850_GPIO5_4, DA850_GPIO5_3,
 	-1
 };
+static struct mxc_mma845x_platform_data mma845x_data = {
+	.gpio_pin_get 	= NULL,
+	.gpio_pin_put 	= NULL,
+	.int1 			= NULL,
+	.int2		 	= NULL,
+};
 
 static struct i2c_board_info __initdata da850_trik_i2c1_devices[] = {
 	{
@@ -372,8 +378,9 @@ static __init int da850_trik_i2c1_init(void)
 	ret = davinci_cfg_reg_list(da850_trik_i2c1_mma845x_pins);
 	if (ret)
 		pr_warning("%s: I2C1 mma845x pinmux setup failed: %d\n", __func__, ret);
-
-	da850_trik_i2c1_devices[1].irq = gpio_to_irq(GPIO_TO_PIN(5,4));
+	mma845x_data.int1 = gpio_to_irq(GPIO_TO_PIN(5,3));
+	mma845x_data.int2 = gpio_to_irq(GPIO_TO_PIN(5,4));
+	da850_trik_i2c1_devices[1].platform_data = &mma845x_data;
 
 	ret = i2c_register_board_info(2, da850_trik_i2c1_devices, ARRAY_SIZE(da850_trik_i2c1_devices));
 	if (ret) {

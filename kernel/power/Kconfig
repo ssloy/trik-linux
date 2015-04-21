@@ -270,3 +270,13 @@ config PM_GENERIC_DOMAINS_RUNTIME
 config CPU_PM
 	bool
 	depends on SUSPEND || CPU_IDLE
+ 
+config HAS_WAKELOCK
+       bool
+       default y
+
+config WAKELOCK
+       bool
+       default y
+ 
+
